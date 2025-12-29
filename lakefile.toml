@@ -1,0 +1,10 @@
+name = "archsem-lean"
+version = "0.1.0"
+defaultTargets = ["archsem-lean"]
+
+[[lean_lib]]
+name = "ArchsemLean"
+
+[[lean_exe]]
+name = "archsem-lean"
+root = "Main"
