@@ -2,6 +2,10 @@ name = "archsem-lean"
 version = "0.1.0"
 defaultTargets = ["archsem-lean"]
 
+[[require]]
+name = "sail_tiny_arm"
+path = "./lean-snapshot/out"
+
 [[lean_lib]]
 name = "ArchsemLean"
 
