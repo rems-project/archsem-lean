@@ -33,7 +33,7 @@ abbrev writeReg (reg : Register) (v : RegisterType reg) : SailM PUnit := PreSail
 
 abbrev readReg (reg : Register) : SailM (RegisterType reg) := PreSail.readReg reg
 
-abbrev RegisterRef := @PreSail.RegisterRef Register RegisterType
+abbrev RegisterRef := PreSail.RegisterRef
 
 abbrev readRegRef (reg_ref : RegisterRef α) : SailM α := PreSail.readRegRef reg_ref
 
@@ -43,6 +43,7 @@ abbrev reg_deref (reg_ref : RegisterRef α) : SailM α := PreSail.reg_deref reg_
 
 abbrev assert (p : Bool) (s : String) : SailM Unit := PreSail.assert p s
 
+/-
 namespace ConcurrencyInterfaceV1
 
 open PreSail.ConcurrencyInterfaceV1
@@ -67,34 +68,36 @@ abbrev sail_take_exception [Arch] (f : Arch.fault) : SailM Unit := PreSail.Concu
 abbrev sail_return_exception [Arch] (a : Arch.pa) : SailM Unit := PreSail.ConcurrencyInterfaceV1.sail_return_exception a
 
 end ConcurrencyInterfaceV1
+-/
 
 namespace ConcurrencyInterfaceV2
 
 open PreSail.ConcurrencyInterfaceV2
+open ArchSem
 
-abbrev sail_mem_read [Arch] (req : Mem_request n nt Arch.addr_size Arch.addr_space Arch.mem_acc) :
+abbrev sail_mem_read (req : Mem_request n nt Arch.addr_size Arch.addr_space Arch.mem_acc) :
     SailM (Result ((Vector (BitVec 8) n) × (Vector Bool nt)) Arch.abort) :=
   PreSail.ConcurrencyInterfaceV2.sail_mem_read req
 
-def sail_mem_write [Arch] (req : Mem_request n nt Arch.addr_size Arch.addr_space Arch.mem_acc) (valueBytes : Vector (BitVec 8) n) (tags : Vector Bool nt) :
+def sail_mem_write (req : Mem_request n nt Arch.addr_size Arch.addr_space Arch.mem_acc) (valueBytes : Vector (BitVec 8) n) (tags : Vector Bool nt) :
     SailM (Result (Option Bool) Arch.abort) := do
   PreSail.ConcurrencyInterfaceV2.sail_mem_write req valueBytes tags
 
-abbrev sail_sys_reg_read [Arch] (id : Arch.sys_reg_id) (r : RegisterRef α) : SailM α :=
+abbrev sail_sys_reg_read (id : Arch.sys_reg_id) (r : RegisterRef α) : SailM α :=
   PreSail.ConcurrencyInterfaceV2.sail_sys_reg_read id r
 
-abbrev sail_sys_reg_write [Arch] (id : Arch.sys_reg_id) (r : RegisterRef α) (v : α) : SailM Unit :=
+abbrev sail_sys_reg_write (id : Arch.sys_reg_id) (r : RegisterRef α) (v : α) : SailM Unit :=
   PreSail.ConcurrencyInterfaceV2.sail_sys_reg_write id r v
 
-abbrev sail_mem_address_announce [Arch] (ann : Mem_request n nt Arch.addr_size Arch.addr_space Arch.mem_acc) : SailM Unit :=
+abbrev sail_mem_address_announce (ann : Mem_request n nt Arch.addr_size Arch.addr_space Arch.mem_acc) : SailM Unit :=
   PreSail.ConcurrencyInterfaceV2.sail_mem_address_announce ann
 
-abbrev sail_barrier [Arch] (b : Arch.barrier) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_barrier b
-abbrev sail_cache_op [Arch] (op : Arch.cache_op) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_cache_op op
-abbrev sail_tlbi [Arch] (op : Arch.tlbi) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_tlbi op
-abbrev sail_translation_start [Arch] (ts : Arch.trans_start) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_translation_start ts
-abbrev sail_translation_end [Arch] (te : Arch.trans_end) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_translation_end te
-abbrev sail_take_exception [Arch] (f : Arch.exn) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_take_exception f
+abbrev sail_barrier (b : Arch.barrier) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_barrier b
+abbrev sail_cache_op (op : Arch.cache_op) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_cache_op op
+abbrev sail_tlbi (op : Arch.tlbi) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_tlbi op
+abbrev sail_translation_start (ts : Arch.trans_start) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_translation_start ts
+abbrev sail_translation_end (te : Arch.trans_end) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_translation_end te
+abbrev sail_take_exception (f : Arch.exn) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_take_exception f
 abbrev sail_return_exception (a : Unit) : SailM Unit := PreSail.ConcurrencyInterfaceV2.sail_return_exception a
 
 
@@ -117,11 +120,13 @@ def SailME.run (m : SailME α α) : SailM α := PreSail.PreSailME.run m
 
 def SailME.throw (e : α) : SailME α β := PreSail.PreSailME.throw e
 
+/-
 abbrev sailTryCatchE (e : SailME β α) (h : exception → SailME β α) : SailME β α := PreSail.sailTryCatchE e h
 
 def unwrapValue [Inhabited α] (x : SailM α) : α :=
   match x.run default with
   | .ok x _ => x
   | _ => default
+-/
 
 end Sail

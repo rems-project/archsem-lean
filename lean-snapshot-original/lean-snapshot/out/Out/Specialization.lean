@@ -117,13 +117,11 @@ def SailME.run (m : SailME α α) : SailM α := PreSail.PreSailME.run m
 
 def SailME.throw (e : α) : SailME α β := PreSail.PreSailME.throw e
 
-/-
 abbrev sailTryCatchE (e : SailME β α) (h : exception → SailME β α) : SailME β α := PreSail.sailTryCatchE e h
 
 def unwrapValue [Inhabited α] (x : SailM α) : α :=
   match x.run default with
   | .ok x _ => x
   | _ => default
--/
 
 end Sail

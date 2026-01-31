@@ -81,41 +81,41 @@ something like :
   PreSailME : Free Mon(outcome (generic error + user error + A:type))
 -/
 inductive InstructionEffect where
-  | RegRead (reg : Arch.register) (accessType : Option Arch.sys_reg_id)
-  | RegWrite (reg : Arch.register) (accessType : Option Arch.sys_reg_id) (value: Arch.register_type reg)
-  | MemRead (memReq : MemRequest)
-  | MemWrite (memReq : MemRequest) (value : BitVec (8 * memReq.size)) (tags : BitVec (memReq.numTag))
-  | MemWriteAnnounce (memReq : MemRequest)
-  | Barrier (barrier : Arch.barrier)
-  | CacheOp (op : Arch.cache_op)
-  | TlbOp (op : Arch.tlbi)
-  | Choice (primitive : Primitive)
-  | ClockCycle
-  | GetCycleCount
-  | TranslationStart (translationStart : Arch.trans_start)
-  | TranslationEnd (translationEnd : Arch.trans_end)
-  | ArchException (exception : Arch.exn)
-  | ReturnExecption
+  | regRead (reg : Arch.register) (accessType : Option Arch.sys_reg_id)
+  | regWrite (reg : Arch.register) (accessType : Option Arch.sys_reg_id) (value: Arch.register_type reg)
+  | memRead (memReq : MemRequest)
+  | memWrite (memReq : MemRequest) (value : BitVec (8 * memReq.size)) (tags : BitVec (memReq.numTag))
+  | memWriteAnnounce (memReq : MemRequest)
+  | barrier (barrier : Arch.barrier)
+  | cacheOp (op : Arch.cache_op)
+  | tlbOp (op : Arch.tlbi)
+  | choice (primitive : Primitive)
+  | clockCycle
+  | getCycleCount
+  | translationStart (translationStart : Arch.trans_start)
+  | translationEnd (translationEnd : Arch.trans_end)
+  | archException (exception : Arch.exn)
+  | returnExecption
   /- CR clang: Maybe split this out into different types: -/
-  | PrintMessage (msg : String)
+  | printMessage (msg : String)
 
 /- CR clang: namespcae this -/
 def InstructionEffect.ret : InstructionEffect → Type
-  | .RegRead reg _ => Arch.register_type reg
-  | .RegWrite _ _ _ => Unit
-  | .MemRead memReq => Result (BitVec (8 * memReq.size) × BitVec (memReq.numTag)) Arch.abort
-  | .MemWrite _ _ _ => Result Unit Arch.abort
-  | .MemWriteAnnounce _ => Unit
-  | .Barrier _ => Unit
-  | .CacheOp _ => Unit
-  | .TlbOp _ => Unit
-  | .Choice primitive => primitive.reflect
-  | .ClockCycle => Unit
-  | .GetCycleCount => Nat
-  | .TranslationStart _ => Unit
-  | .TranslationEnd _ => Unit
-  | .ArchException _ => Unit
-  | .ReturnExecption => Unit
-  | .PrintMessage _ => Unit
+  | .regRead reg _ => Arch.register_type reg
+  | .regWrite _ _ _ => Unit
+  | .memRead memReq => Result (BitVec (8 * memReq.size) × BitVec (memReq.numTag)) Arch.abort
+  | .memWrite _ _ _ => Result Unit Arch.abort
+  | .memWriteAnnounce _ => Unit
+  | .barrier _ => Unit
+  | .cacheOp _ => Unit
+  | .tlbOp _ => Unit
+  | .choice primitive => primitive.reflect
+  | .clockCycle => Unit
+  | .getCycleCount => Nat
+  | .translationStart _ => Unit
+  | .translationEnd _ => Unit
+  | .archException _ => Unit
+  | .returnExecption => Unit
+  | .printMessage _ => Unit
 
 end ArchSem

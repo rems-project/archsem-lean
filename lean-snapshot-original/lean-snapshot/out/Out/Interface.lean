@@ -106,8 +106,8 @@ def read_memory (N : Nat) (addr : (BitVec 64)) (accdesc : AccessDescriptor) : Sa
     { access_kind := accdesc
       address := (Sail.BitVec.truncate addr addr_size')
       address_space := addr_space_def
-      size := ⟨N, rfl⟩
-      num_tag := ⟨0, rfl⟩ }
+      size := N
+      num_tag := 0 }
   match (← (sail_mem_read req)) with
   | .Ok (bytes, _) => (pure (from_bytes_le (n := N) bytes))
   | .Err _e => throw Error.Exit
@@ -126,8 +126,8 @@ def wMem (addr : (BitVec 64)) (value : (BitVec 64)) (accdesc : AccessDescriptor)
     { access_kind := accdesc
       address := (Sail.BitVec.truncate addr addr_size')
       address_space := addr_space_def
-      size := ⟨8, rfl⟩
-      num_tag := ⟨0, rfl⟩ }
+      size := 8
+      num_tag := 0 }
   match (← (sail_mem_write req (to_bytes_le (n := 8) value) #v[])) with
   | .Ok _ => (pure ())
   | .Err _ => throw Error.Exit
