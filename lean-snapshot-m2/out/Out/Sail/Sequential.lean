@@ -43,6 +43,23 @@ def readByte (addr : Nat) : EStateM (Error ue) (SequentialState c) (BitVec 8) :=
 def writeByte (addr : Nat) (value : BitVec 8) : EStateM (Error ue) (SequentialState c) PUnit := do
   modify fun s => { s with mem := s.mem.insert addr value }
 
+def readBytes (size : Nat) (addr : Nat) : EStateM (Error ue) (SequentialState c) (BitVec (8 * size)) :=
+  match size with
+  | 0 => pure BitVec.nil
+  | 1 => do
+    let b ← readByte addr
+    have h : 8 * 1 = 8 := rfl
+    return (h ▸ b)
+  | n + 1 => do
+    let b ← readByte addr
+    let bytes ← readBytes n (addr+1)
+    have h : 8 * n + 8 = 8 * (n + 1) := by omega
+    return (h ▸ bytes.append b)
+
+def writeBytes (addr : Nat) (value : BitVec (8 * size)) : EStateM (Error ue) (SequentialState c) PUnit :=
+  let list := List.ofFn (fun i : Fin size => (addr + i.val, value.extractLsb' (i.val * 8 + 8) 8))
+  List.forM list (fun (a, v) => writeByte a v)
+
 def interpretEffect : (eff : InstructionEffect) → EStateM (Error userError) (SequentialState c) (eff.ret)
   | .regRead reg _accessType => do
     let .some s := (← get).regs.get? reg
@@ -54,13 +71,11 @@ def interpretEffect : (eff : InstructionEffect) → EStateM (Error userError) (S
     /- CR clang: check I'm doing the right edianness here... -/
   | .memRead req => do
     let addr := req.address.toNat
-    let list ← List.ofFnM (m := EStateM (Error userError) (SequentialState c))
-      (fun i : Fin req.size => readByte (addr + i.val))
-    .pure (.Ok (List.foldl (fun acc b => BitVec.append acc b) (BitVec.zero 0) list, BitVec.zero req.size))
+    let value ← readBytes req.size addr
+    .pure (.Ok (value, BitVec.zero req.size))
   | .memWrite req value _tags => do
     let addr := req.address.toNat
-    let list := List.ofFn (fun i : Fin req.size => (addr + i.val, value.extractLsb' (i.val * 8 + 8) 8))
-    List.forM list (fun (a, v) => writeByte a v)
+    writeBytes addr value
     pure (Ok ())
   | .memWriteAnnounce _memReq => .pure ()
   | .barrier _barrier => .pure ()

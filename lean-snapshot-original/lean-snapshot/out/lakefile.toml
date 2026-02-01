@@ -1,7 +1,0 @@
-name = "out"
-defaultTargets = ["Out"]
-moreLeanArgs = ["--tstack=400000"]
-
-[[lean_lib]]
-name = "Out"
-leanOptions.weak.linter.style.nameCheck = false

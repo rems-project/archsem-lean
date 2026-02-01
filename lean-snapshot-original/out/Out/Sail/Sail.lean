@@ -739,7 +739,6 @@ def PreSailME.run (m : PreSailME RT c ue α α) : PreSailM RT c ue α := do
     | .error (.inl e) => throw e
     | .ok e => pure e
 
-/-
 def _root_.ExceptT.map_error [Monad m] (e : ExceptT ε m α) (f : ε → ε') : ExceptT ε' m α :=
   ExceptT.mk <| do
     match ← e.run with
@@ -749,15 +748,12 @@ def _root_.ExceptT.map_error [Monad m] (e : ExceptT ε m α) (f : ε → ε') : 
 instance [∀ x, CoeT α x α'] :
     CoeT (PreSailME RT c ue α β) e (PreSailME RT c ue α' β) where
   coe := e.map_error (fun x => match x with | .inl e => .inl e | .inr e => .inr e)
--/
 
 def PreSailME.throw (e : α) : PreSailME RT c ue α β :=
     MonadExceptOf.throw (Sum.inr (α := Error ue) e)
 
-/-
 instance : Inhabited (PreSail.SequentialState RT trivialChoiceSource) where
   default := ⟨default, (), default, default, default, default⟩
--/
 
 end SailME
 
