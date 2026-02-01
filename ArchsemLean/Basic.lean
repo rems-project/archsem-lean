@@ -1,6 +1,6 @@
 import Out.Defs
 
 
-#check Sail.ConcurrencyInterfaceV2.Arch
+#check ArchSem.Arch
 
 def hello := "world"

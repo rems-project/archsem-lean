@@ -6,7 +6,7 @@
    "name": "sail_tiny_arm",
    "manifestFile": "lake-manifest.json",
    "inherited": false,
-   "dir": "./lean-snapshot/out",
+   "dir": "./lean-snapshot-m2/out",
    "configFile": "lakefile.toml"}],
  "name": "«archsem-lean»",
  "lakeDir": ".lake"}

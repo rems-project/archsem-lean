@@ -261,6 +261,7 @@ section PreSailTypes
 
 open ArchSem
 
+/-
 structure ChoiceSource where
   (α : Type)
   (nextState : Primitive → α → α)
@@ -278,6 +279,7 @@ def trivialChoiceSource : ChoiceSource where
     | .string => ""
     | .fin _ => 0
     | .bitvector _ => 0
+-/
 
 /-
 class ConcurrencyInterfaceV1.Arch where
