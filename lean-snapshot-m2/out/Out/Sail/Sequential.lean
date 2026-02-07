@@ -110,4 +110,3 @@ def main_of_sail_main (initialState : SequentialState c) (main : Unit → PreSai
       IO.print m
     IO.eprintln s!"Error while running the sail program!: {e.print}"
     return 1
-

@@ -2,14 +2,7 @@ import Out.Defs
 import Out.Sail.Sequential
 import Out.TinyArm
 
-#check ArchSem.Arch
-#check SequentialState
-#check ChoiceSource
-
 open ArchSem
-
-example : Arch.register = Register := by
-  rfl
 
 /- CR chris: I dont understand why lean4 cant figure this out in its own. -/
 instance : DecidableEq Arch.register := by
@@ -25,14 +18,18 @@ def memInsert (addr : Nat) (size : Nat) (value : Nat) (mem : (Std.ExtHashMap Nat
   let list := List.ofFn (fun i : Fin size => (addr + i.val, BitVec.ofNat 8 (value >>> (i.val * 8))))
   list.foldl (fun acc (addr, byte) => acc.insert addr byte) mem
 
+def outputSequentialState (info : SequentialState choiceSource → String)
+    : EStateM.Result (Sail.Error exception) (SequentialState choiceSource) Unit → String
+  | .ok _ s =>
+    /- let out : Option (BitVec _) := s.regs.get? reg -/
+    s!"output: {info s}\n" ++ "\n".intercalate s.sailOutput.toList
+  | .error e s =>
+    s!"error: {e.print}\n" ++ "\n".intercalate s.sailOutput.toList
+
+/- Run EOR X0, X1, X2 at pc address 0x500, whose opcode is 0xca020020 -/
+section EOR
+
 def choiceSource := trivialChoiceSource
-/-
-    Std.ExtDHashMap.insert default Register._PC (BitVec.ofNat 64 100)
-    
-      |> mem_insert 0x500 4 0xca020020. (* EOR X0, X1, X2 *)
-
--/
-
 def initialState : SequentialState choiceSource := {
   regs :=
     (Std.ExtDHashMap.emptyWithCapacity 64)
@@ -49,21 +46,16 @@ def initialState : SequentialState choiceSource := {
   sailOutput := Array.empty
 }
 
-def main : IO UInt32 :=
+def eor_output : String :=
   let freeMonad := Out.Functions.fetch_and_execute ()
   let stateMonad := sequentialInterpreter freeMonad
   let result := stateMonad.run initialState
-  match result with
-  | .ok _ s => do
-    let out : Option (BitVec 64) := s.regs.get? .R0
-    IO.print s!"output: {out}"
-    for m in s.sailOutput do
-      IO.print m
-    return 0
-  | .error e s => do
-    for m in s.sailOutput do
-      IO.print m
-    IO.eprintln s!"Error while running the sail program!: {e.print}"
-    return 1
+  /- CR clang: why cant this be (fun s => toString (s.regs.get? .R0)) -/
+  outputSequentialState (fun s =>
+    let out : Option (BitVec 64) := (s.regs.get? .R0)
+    toString out
+  ) result
 
-#eval main
+#guard eor_output == "output: (some 0x0000000000000110#64)\n"
+
+end EOR
