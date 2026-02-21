@@ -402,42 +402,6 @@ abbrev RegisterType : Register → Type
   | .R30 => (BitVec 64)
   | ._PC => (BitVec 64)
 
-@[reducible]
-instance : Arch where
-  register := Register
-  register_type := RegisterType
-  addr_size := addr_size
-  addr_space := addr_space
-  mem_acc := AccessDescriptor
-  trans_start := Unit
-  trans_end := Unit
-  abort := abort
-  barrier := Barrier
-  cache_op := Unit
-  tlbi := Unit
-  exn := Unit
-  sys_reg_id := Unit
-  /-
-  CHERI := false
-  cap_size_log := 0
-  mem_acc_is_explicit := mem_acc_is_explicit
-  mem_acc_is_ifetch := mem_acc_is_ifetch
-  mem_acc_is_ttw := mem_acc_is_ttw
-  mem_acc_is_relaxed := mem_acc_is_relaxed
-  mem_acc_is_rel_acq_rcpc := mem_acc_is_rel_acq_rcpc
-  mem_acc_is_rel_acq_rcsc := mem_acc_is_rel_acq_rcsc
-  mem_acc_is_standalone := mem_acc_is_standalone
-  mem_acc_is_exclusive := mem_acc_is_exclusive
-  mem_acc_is_atomic_rmw := mem_acc_is_atomic_rmw
-  -/
-
-instance : Inhabited (RegisterRef (BitVec 64)) where
-  default := .Reg _PC
-abbrev exception := Unit
-
-abbrev SailM := PreSailM exception
-abbrev SailME := PreSailME exception
-
 def mem_acc_is_explicit (acc : AccessDescriptor) : Bool :=
   (BEq.beq acc.acctype AccessType_GPR)
 
@@ -465,3 +429,39 @@ def mem_acc_is_exclusive (acc : AccessDescriptor) : Bool :=
 def mem_acc_is_atomic_rmw (acc : AccessDescriptor) : Bool :=
   ((BEq.beq acc.acctype AccessType_GPR) && acc.atomicop)
 
+@[reducible]
+instance : Arch where
+  register := Register
+  register_type := RegisterType
+  addr_size := addr_size
+  addr_space := addr_space
+  mem_acc := AccessDescriptor
+  trans_start := Unit
+  trans_end := Unit
+  abort := abort
+  barrier := Barrier
+  cache_op := Unit
+  tlbi := Unit
+  exn := Unit
+  sys_reg_id := Unit
+  
+  mem_acc_is_explicit := mem_acc_is_explicit
+  mem_acc_is_ifetch := mem_acc_is_ifetch
+  mem_acc_is_ttw := mem_acc_is_ttw
+  mem_acc_is_relaxed := mem_acc_is_relaxed
+  mem_acc_is_rel_acq_rcpc := mem_acc_is_rel_acq_rcpc
+  mem_acc_is_rel_acq_rcsc := mem_acc_is_rel_acq_rcsc
+  mem_acc_is_standalone := mem_acc_is_standalone
+  mem_acc_is_exclusive := mem_acc_is_exclusive
+  mem_acc_is_atomic_rmw := mem_acc_is_atomic_rmw
+  /-
+  CHERI := false
+  cap_size_log := 0
+  -/
+
+instance : Inhabited (RegisterRef (BitVec 64)) where
+  default := .Reg _PC
+abbrev exception := Unit
+
+abbrev SailM := PreSailM exception
+abbrev SailME := PreSailME exception

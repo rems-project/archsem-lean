@@ -450,7 +450,7 @@ structure SequentialState (RegisterType : Register → Type) (c : ChoiceSource) 
   sailOutput : Array String -- TODO: be able to use the IO monad to run
 -/
 
-/- CR clang : why do we need this? -/
+/- CR clang : why do we need this? (RegisterRef) -/
 variable [Arch]
 inductive RegisterRef : Type → Type where
   | Reg (r : Arch.register) : RegisterRef (Arch.register_type r)
