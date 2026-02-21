@@ -21,7 +21,6 @@ Inductive fMon {A : Type} :=
 `v` is the universe of effects
 `w` is the universe of eventual return values
 -/
-/- CR clang: think about why this exists in the universe it does. -/
 inductive FreeM.{u, v, w} (Eff : Type v) [Effect.{v, u} Eff] (α : Type w) where
   | pure (a : α) : FreeM Eff α
   | bind (call : Eff) (cont : Effect.eff_ret call → FreeM Eff α) : FreeM Eff α

@@ -4,7 +4,7 @@ import Out.TinyArm
 
 open ArchSem
 
-/- CR chris: I dont understand why lean4 cant figure this out in its own. -/
+/- CR clang for leo: I dont understand why lean4 cant figure this out in its own. -/
 instance : DecidableEq Arch.register := by
   have eq : Arch.register = Register := rfl
   rw [eq]
@@ -47,6 +47,7 @@ def initialState : SequentialState choiceSource := {
 }
 
 def eor_output : String :=
+  /- CR clang: support running >1 instruction. -/
   let freeMonad := Out.Functions.fetch_and_execute ()
   let stateMonad := sequentialInterpreter freeMonad
   let result := stateMonad.run initialState
