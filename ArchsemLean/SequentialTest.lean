@@ -1,8 +1,8 @@
+import ArchsemLean.Sequential
 import Out.Defs
-import Out.Sail.Sequential
 import Out.TinyArm
 
-open ArchSem
+open Sail.ArchSem
 
 /- CR clang for leo: I dont understand why lean4 cant figure this out in its own. -/
 instance : DecidableEq Arch.register := by
