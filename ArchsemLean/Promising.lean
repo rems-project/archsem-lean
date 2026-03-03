@@ -207,7 +207,7 @@ def readFwdView (macc : Arch.mem_acc) (f : FwdItem) : View :=
 
 def readMem (loc : Loc) (vaddr : View) (macc : Arch.mem_acc)
     (init : InitialMem) (mem : Memory)
-    : Exec ThreadState String (Timestamp × Value) := do
+    : NEStateM ThreadState String (Timestamp × Value) := do
   if Arch.mem_acc_is_atomic_rmw macc then Except.error "Atomic RMW unsupported"
   let ts ← get
   let vbob := max ts.vdmb ts.visb |>.max ts.vacq
@@ -218,8 +218,8 @@ def readMem (loc : Loc) (vaddr : View) (macc : Arch.mem_acc)
   | .none => Except.error "Reading from unmapped memory"
   | .some reads => pure reads
   /- CR clang: why does the monadLift not happen automatically? -/
-  /- CR clang: Give Res.fromResults an easier name like `choose reads`. -/
-  let (res, time) ← liftM (m := Res String) (n := Exec ThreadState String) (Res.fromResults reads)
+  /- CR clang: Give NResult.fromResults an easier name like `choose reads`. -/
+  let (res, time) ← liftM (m := NResult String) (n := NEStateM ThreadState String) (NResult.fromResults reads)
   let read_view :=
     match ts.fwdb.get? loc with
     | some fwd => if fwd.time == time then readFwdView macc fwd else time
@@ -235,7 +235,7 @@ def readMem (loc : Loc) (vaddr : View) (macc : Arch.mem_acc)
 
 /- CR clang: TODO sanity check some of these bitwise operations. -/
 def readMem4 (addr : Loc) (macc : Arch.mem_acc) (init : InitialMem) :
-    Exec Memory String (BitVec 32) := do
+    NEStateM Memory String (BitVec 32) := do
   if Arch.mem_acc_is_ifetch macc then
     let aligned_addr := BitVec.and addr (BitVec.ofNat 56 0x03).not
     let bit2 := addr.getLsb 2
@@ -252,7 +252,7 @@ def readMem4 (addr : Loc) (macc : Arch.mem_acc) (init : InitialMem) :
 
 def writeMem (tid : Nat) (loc : Loc) (vdata : View)
     (macc : Arch.mem_acc) (mem : Memory) (data : Value)
-    : Exec ThreadState String (Memory × View × Option View) := do
+    : NEStateM ThreadState String (Memory × View × Option View) := do
   let msg := { tid, loc, val := data }
   let is_release := isRelAcq macc
   let ts ← get
@@ -267,7 +267,7 @@ def writeMem (tid : Nat) (loc : Loc) (vdata : View)
     |>.max (viewIf is_release (max ts.vrd ts.vwr))
   let vpre := max vdata ts.vcap |>.max vbob
   if (max vpre (ts.coh.getD loc 0)) >= time then
-    Exec.discard
+    NEStateM.discard
   modify (fun ts => { ts with promises := ts.promises.filter (· != time) })
   modify (fun ts => ts.updateCoherenceView loc time)
   modify (fun ts => ts.update .vwr time)
@@ -277,17 +277,17 @@ def writeMem (tid : Nat) (loc : Loc) (vdata : View)
 def writeMemXcl (tid : Nat) (loc : Loc)
     (vdata : View) (macc : Arch.mem_acc)
     (mem : Memory) (data : Value)
-    : Exec ThreadState String (Memory × Option View) := do
+    : NEStateM ThreadState String (Memory × Option View) := do
   if Arch.mem_acc_is_atomic_rmw macc then Except.error "Atomic RMW unsupported"
   let xcl := Arch.mem_acc_is_exclusive macc
   if xcl then
     let (mem, time, vpreOpt) ← writeMem tid loc vdata macc mem data
     let ts ← get
     match ts.xclb with
-    | none => Exec.discard
+    | none => NEStateM.discard
     | some (xtime, _xview) =>
         if !(exclusive loc xtime (mem.cutAfter time)) then
-          Exec.discard
+          NEStateM.discard
     modify (fun ts => ts.setForwardingItem loc { time, view := vdata, xcl := true })
     modify (fun ts => ts.clearLoadExclusive)
     return (mem, vpreOpt)
@@ -336,7 +336,7 @@ def IIS.add (v : View) (iis : IIS) : IIS :=
 /- CR clang: make sure to rename outcome to effect. -/
 /- CR clang: it would be nice if the state lifts were implicit. -/
 def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
-    : Exec ProjectedModelState String ((InstructionEffect.ret out) × Option View) :=
+    : NEStateM ProjectedModelState String ((InstructionEffect.ret out) × Option View) :=
   match out with
   | .regWrite reg racc val => do
     match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
@@ -370,10 +370,10 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
     | 4 => /- ifetch -/
       /-
        - CR clang for leo: In archsem, rocq is able to auto-synthesize the setter given the getter.
-       - could we add an Exec.liftState which is the analogous of archsem rocq's. This might require
+       - could we add an NEStateM.liftState which is the analogous of archsem rocq's. This might require
        - a lean language feature but I'm not sure how we could do it.
        -/
-      let opcode ← Exec.liftStateFull (ProjectedModelState.mem)
+      let opcode ← NEStateM.liftStateFull (ProjectedModelState.mem)
         (fun mem ppstate => { ppstate with mem := mem } )
         (readMem4 memReq.address memReq.accessKind initmem)
       return (.Ok (opcode, BitVec.zero 0), none)
@@ -386,8 +386,8 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
       else if Arch.mem_acc_is_explicit memReq.accessKind then
         let vaddr := (← get).iis
         let mem := (← get).mem
-        /- CR clang: see my other comment about Exec.liftState -/
-        let (view, val) ← Exec.liftStateFull ProjectedModelState.threadState
+        /- CR clang: see my other comment about NEStateM.liftState -/
+        let (view, val) ← NEStateM.liftStateFull ProjectedModelState.threadState
           (fun tstate ppstate => { ppstate with threadState := tstate })
           (readMem loc vaddr memReq.accessKind initmem mem)
         modify (fun s => { s with iis := s.iis.add view })
@@ -410,8 +410,8 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
       let vdata := (← get).iis
       /- CR clang: I feel like there must be a nicer way to do this. -/
       have h' : Value = BitVec (8 * memReq.size) := by rw [Value, h]
-      /- CR clang: see my other comment about Exec.liftState -/
-      let (mem, vpreOpt) ← Exec.liftStateFull ProjectedModelState.threadState
+      /- CR clang: see my other comment about NEStateM.liftState -/
+      let (mem, vpreOpt) ← NEStateM.liftStateFull ProjectedModelState.threadState
         (fun tstate ppstate => { ppstate with threadState := tstate } )
         (writeMemXcl tid loc vdata memReq.accessKind mem (h' ▸ val))
       modify (fun s => {s with mem := mem})
@@ -440,7 +440,7 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
 /-
 /- CR clang: I just deleted it because we can just use runOutcome and pipe into fst -/
 def runOutcome' (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
-    : Exec ProjectedModelState String (InstructionEffect.ret out) := do
+    : NEStateM ProjectedModelState String (InstructionEffect.ret out) := do
   let (ret, _opt) ← (runOutcome tid initmem out)
   return ret
   -/
@@ -460,7 +460,7 @@ structure Model where
   addressSpace : Arch.addr_space
   /- CR clang: check that it indeed is a view being returned from here. We had `Nat` in archsem. -/
   handleEffect : Tid → InitialMem → (eff : InstructionEffect)
-    → Exec ProjectedModelState String (eff.ret × Option View)
+    → NEStateM ProjectedModelState String (eff.ret × Option View)
   emitPromise : Tid → InitialMem → Memory → memEvent → tState → tState
   /- CR clang: This is weird, do I need it? -/
   checkValidEnd : Tid → InitialMem → Memory → tState → List String
@@ -513,8 +513,8 @@ def injectModelState (tid : Fin n) (ppstate : ProjectedModelState) (pstate : Mod
   { pstate with threadStates := pstate.threadStates.set tid ppstate.threadState, mem := ppstate.mem }
 
 /- CR clang: In archsem-rocq this is handled more generally. So this is tempoary really. -/
-def interpreter (handler : (eff : InstructionEffect) → Exec σ String (eff.ret))
-    : SailM α → Exec σ String α
+def interpreter (handler : (eff : InstructionEffect) → NEStateM σ String (eff.ret))
+    : SailM α → NEStateM σ String α
   | .pure x => return x
   | .impure (.Err err) _cont => Except.error (err.print)
   | .impure (.Ok eff) cont => do
@@ -522,10 +522,10 @@ def interpreter (handler : (eff : InstructionEffect) → Exec σ String (eff.ret
     interpreter handler (cont x)
 
 /- CR clang: `run_tid` in archsem. -/
-def runThreadInstruction (isem : SailM Unit) (tid : Fin n) : Exec (ModelState n) String Unit := do
+def runThreadInstruction (isem : SailM Unit) (tid : Fin n) : NEStateM (ModelState n) String Unit := do
   let pstate ← get
   let handler (eff : InstructionEffect) := return (← runOutcome tid pstate.initmem eff).fst
-  Exec.liftStateFull (projectModelState tid) (injectModelState tid) (interpreter handler isem)
+  NEStateM.liftStateFull (projectModelState tid) (injectModelState tid) (interpreter handler isem)
 
 /- def seq_step -/
 -- def allowedPromisesTid (certified : Bool) (pstate : ModelState n) (tid : Fin n) (msg : Msg) : Prop := sorry
@@ -545,9 +545,9 @@ def promiseTid (tid : Fin n) (msg : Msg) (pstate : ModelState n)
 
 def runOutcomeWithPromise (tid : Nat) (initmem : InitialMem)
     (base : View) (out : InstructionEffect)
-    : Exec (List Msg × ProjectedModelState) String (InstructionEffect.ret out) := do
-  /- CR clang: see my other comment about Exec.liftState -/
-  let (res, vpreOpt) ← Exec.liftStateFull Prod.snd
+    : NEStateM (List Msg × ProjectedModelState) String (InstructionEffect.ret out) := do
+  /- CR clang: see my other comment about NEStateM.liftState -/
+  let (res, vpreOpt) ← NEStateM.liftStateFull Prod.snd
     (fun ppstate state => (state.fst, ppstate) )
     (runOutcome tid initmem out)
   match vpreOpt with
@@ -563,7 +563,7 @@ def runOutcomeWithPromise (tid : Nat) (initmem : InitialMem)
 
 def runToTermination (tid : Nat) (initmem : InitialMem) (isem : SailM Unit)
     (termination : RegisterMap → Bool) (fuel : Nat) (base : View)
-    : Exec (List Msg × ProjectedModelState) String Bool := do
+    : NEStateM (List Msg × ProjectedModelState) String Bool := do
   match fuel with
   | 0 =>
     let ts := (← get).snd.threadState
@@ -598,40 +598,40 @@ def enumerateResults (fuel : Nat) (tid : Tid) (initmem : InitialMem) (isem : Sai
   { promises := promises, final_states := tstates, errors := errors, out_of_fuel := outOfFuel }
 
 def promiseSelectTid (fuel : Nat) (pstate : ModelState n) (tid : Fin n)
-    (isem : SailM Unit) (termination : TerminationCondition) : Res String Msg := do
+    (isem : SailM Unit) (termination : TerminationCondition) : NResult String Msg := do
   let res := enumerateResults fuel tid pstate.initmem isem (termination tid) pstate.threadStates[tid] pstate.mem
   if res.out_of_fuel then
-    match (← Res.chooseFin 2) with
-    | 0 => Res.error "out of fuel"
-    | 1 => Res.fromResults res.promises
+    match (← NResult.chooseFin 2) with
+    | 0 => NResult.error "out of fuel"
+    | 1 => NResult.fromResults res.promises
   else
-    Res.fromResults res.promises
+    NResult.fromResults res.promises
 
 def cpromiseTid (fuel : Nat) (tid : Fin n) (isem : SailM Unit)
-    (termination : TerminationCondition) : Exec (ModelState n) String Unit := do
+    (termination : TerminationCondition) : NEStateM (ModelState n) String Unit := do
   let pstate ← get
   let ev ← promiseSelectTid fuel pstate tid isem termination
   modify (fun _ => promiseTid tid ev pstate)
 
 def runStep (fuel : Nat) (isem : SailM Unit)
-    (termination : TerminationCondition) : Exec (ModelState n) String Unit := do
+    (termination : TerminationCondition) : NEStateM (ModelState n) String Unit := do
   let pstate ← get
-  let tid ← Exec.chooseFin n
-  if threadTerminated termination pstate tid then Exec.discard
+  let tid ← NEStateM.chooseFin n
+  if threadTerminated termination pstate tid then NEStateM.discard
   else
-    match (← Exec.chooseFin 2) with
+    match (← NEStateM.chooseFin 2) with
     | 0 => cpromiseTid fuel tid isem termination
     | 1 => runThreadInstruction isem tid
 
 /- CR clang: archsem-rocq return a `final` (ModelStae + proof it satisfied termination condition). -/
 def run (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition)
-    : Exec (ModelState n) String (ModelState n) := do
+    : NEStateM (ModelState n) String (ModelState n) := do
   let pstate ← get
   if allThreadsTerminated termination pstate then
     pure pstate
   else
     match fuel with
-    | 0 => Exec.error "Could not finish running within the size of the fuel"
+    | 0 => NEStateM.error "Could not finish running within the size of the fuel"
     | fuel' + 1 =>
       runStep (fuel' + 1) isem termination
       run fuel' isem termination
@@ -640,38 +640,38 @@ def run (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition)
  - CR clang: archsem-rocq does not bother with the partial application of the termination condition
  - with the thread id. Probably best to follow that
  -/
-/- CR clang: strange that Exec has two copies of the ModelState in the output. -/
+/- CR clang: strange that NEStateM has two copies of the ModelState in the output. -/
 partial def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
-    (termination : TerminationCondition) : Exec (ModelState n) String (ModelState n) := do
+    (termination : TerminationCondition) : NEStateM (ModelState n) String (ModelState n) := do
   match fuel with
-  | 0 => Exec.error "Promise first: out of fuel in main loop"
+  | 0 => NEStateM.error "Promise first: out of fuel in main loop"
   | fuel' + 1 =>
     let pstate ← get
     let executionResults := Vector.ofFn (fun tid =>
       enumerateResults fuel tid pstate.initmem isem (termination tid) pstate.threadStates[tid] pstate.mem)
-    match (← Exec.chooseFin 4) with
+    match (← NEStateM.chooseFin 4) with
     | 0 =>
-      let tid ← Exec.chooseFin n
-      let nextEv ← Exec.results executionResults[tid].promises
+      let tid ← NEStateM.chooseFin n
+      let nextEv ← NEStateM.results executionResults[tid].promises
       modify (fun pstate => promiseTid tid nextEv pstate)
       runPromiseFirst fuel' isem termination
     | 1 =>
-      let tstates ← executionResults.mapM (fun r => Exec.results r.final_states)
+      let tstates ← executionResults.mapM (fun r => NEStateM.results r.final_states)
       let pstate : ModelState n := { threadStates := tstates, initmem := pstate.initmem, mem := pstate.mem }
-      if !noPromises pstate then Exec.discard else
-      if !allThreadsTerminated termination pstate then Exec.discard else
+      if !noPromises pstate then NEStateM.discard else
+      if !allThreadsTerminated termination pstate then NEStateM.discard else
       let errs :=
         List.ofFn (fun tid : Fin n => UserModeModel.checkValidEnd tid pstate.initmem pstate.mem pstate.threadStates[tid])
         |>.flatten
       if errs.isEmpty then
         pure pstate
       else
-        Exec.errors errs
+        NEStateM.errors errs
     | 2 =>
       let errs := executionResults.toList.map EnumerationResult.errors |>.flatten
-      Exec.errors errs
+      NEStateM.errors errs
     | 3 =>
       if executionResults.toList.any EnumerationResult.out_of_fuel then
-        Exec.error "Promise first: out of fuel in enumeration"
+        NEStateM.error "Promise first: out of fuel in enumeration"
       else
-        Exec.discard
+        NEStateM.discard
