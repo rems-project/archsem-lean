@@ -2,8 +2,6 @@
 
 namespace ExecutionMonad
 
-/- CR clang: I should comment this code making references to the paper. https://sf.snu.ac.kr/publications/promising-arm-riscv.pdf -/
-
 /-
  - CR clang: There is some naming inconsistency here. In lean we call
  - Result `Except`. So maybe `NExcept` is better?

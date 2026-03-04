@@ -47,7 +47,7 @@ def initialState : SequentialState choiceSource := {
   sailOutput := Array.empty
 }
 
-def terminationCondition (regs : RegisterMap) :=
+def terminationCondition : TerminationCondition 1 := fun 1 (regs : RegisterMap) =>
   let pc : Option (BitVec 64) := regs.get? ._PC
   pc == some 0x504
 

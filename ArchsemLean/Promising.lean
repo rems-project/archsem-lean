@@ -1,38 +1,26 @@
 import Out.Defs
-import ArchsemLean.Sequential
 import Out.TinyArm
+import ArchsemLean.Sequential
 import ArchsemLean.ExecutionMonad
+import ArchsemLean.Common
 
 open Sail.ArchSem
 open ExecutionMonad
 
-/- CR clang: TODO: remove duplication. this is in SequentialTest.lean also. -/
-instance : DecidableEq Arch.register := by
-  have eq : Arch.register = Register := rfl
-  rw [eq]
-  infer_instance
-instance : Hashable Arch.register := by
-  have eq : Arch.register = Register := rfl
-  rw [eq]
-  infer_instance
-
 /- CR clang: copy over the descriptive comments from archsem. -/
+/- CR clang: I should comment this code making references to the paper. https://sf.snu.ac.kr/publications/promising-arm-riscv.pdf -/
 
 abbrev Loc := BitVec 53
 abbrev Value := BitVec 64
 abbrev Timestamp := Nat
 abbrev View := Timestamp
-/- CR clang: Replace Nat with Tid where applicable. -/
-abbrev Tid := Nat
-/- CR clang: use RegisterMap where applicable.  -/
-abbrev RegisterMap := Std.ExtDHashMap Arch.register Arch.register_type
 
 /- CR clang: I would prefer WriteMsg or something. -/
 structure Msg where
   tid : Nat
   loc : Loc
   val : Value
-deriving BEq, DecidableEq
+deriving DecidableEq
 
 /- CR clang for thibaut: Maybe I should combine InitialMem and Memory into a struct? Maybe bring in definition of Msg? -/
 def InitialMem := Std.ExtHashMap Loc Value
@@ -491,24 +479,26 @@ structure ModelState (nThreads : Nat) where
   initmem : InitialMem
   mem : Memory
 
-abbrev TerminationCondition := Tid → RegisterMap → Bool
-
 def threadTerminated
-    (termination : TerminationCondition)
+    (termination : TerminationCondition n)
     (pstate : ModelState n)
     (tid : Fin n) : Bool :=
   termination tid pstate.threadStates[tid].regMap
+
 def allThreadsTerminated
-    (termination : TerminationCondition)
+    (termination : TerminationCondition n)
     (pstate : ModelState n) : Bool :=
   (List.finRange n).all (threadTerminated termination pstate)
+
 def noThreadPromises (pstate : ModelState n) (tid : Fin n) : Bool :=
   pstate.threadStates[tid].promises.isEmpty
+
 def noPromises (pstate : ModelState n) : Bool :=
   pstate.threadStates.all (fun tstate => tstate.promises.isEmpty)
   
 def projectModelState (tid : Fin n) (pstate : ModelState n) : ProjectedModelState :=
   { threadState := pstate.threadStates[tid], mem := pstate.mem, iis := 0 }
+
 def injectModelState (tid : Fin n) (ppstate : ProjectedModelState) (pstate : ModelState n) : ModelState n :=
   { pstate with threadStates := pstate.threadStates.set tid ppstate.threadState, mem := ppstate.mem }
 
@@ -561,18 +551,18 @@ def runOutcomeWithPromise (tid : Nat) (initmem : InitialMem)
       pure res
   | .none => pure res
 
-def runToTermination (tid : Nat) (initmem : InitialMem) (isem : SailM Unit)
-    (termination : RegisterMap → Bool) (fuel : Nat) (base : View)
+def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
+    (termination : TerminationCondition n) (fuel : Nat) (base : View)
     : NEStateM (List Msg × ProjectedModelState) String Bool := do
   match fuel with
   | 0 =>
     let ts := (← get).snd.threadState
-    return (termination (ts.regMap))
+    return (termination tid ts.regMap)
   | fuel + 1 => do
     let handler := runOutcomeWithPromise tid initmem base
     interpreter handler isem
     let ts := (← get).snd.threadState
-    if termination ts.regMap then return true else
+    if termination tid ts.regMap then return true else
     modify (fun s => (s.fst, { s.snd with iis := 0 }))
     runToTermination tid initmem isem termination fuel base
 
@@ -582,8 +572,8 @@ structure EnumerationResult where
   errors : List String
   out_of_fuel : Bool
 
-def enumerateResults (fuel : Nat) (tid : Tid) (initmem : InitialMem) (isem : SailM Unit)
-    (termination : RegisterMap → Bool) (ts : ThreadState) (mem : Memory) : EnumerationResult :=
+def enumerateResults (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
+    (termination : TerminationCondition n) (ts : ThreadState) (mem : Memory) : EnumerationResult :=
   let base := mem.length
   let execResult := runToTermination tid initmem isem termination fuel base
   let st : List Msg × ProjectedModelState := ([], { threadState := ts, mem := mem, iis := 0 })
@@ -598,8 +588,8 @@ def enumerateResults (fuel : Nat) (tid : Tid) (initmem : InitialMem) (isem : Sai
   { promises := promises, final_states := tstates, errors := errors, out_of_fuel := outOfFuel }
 
 def promiseSelectTid (fuel : Nat) (pstate : ModelState n) (tid : Fin n)
-    (isem : SailM Unit) (termination : TerminationCondition) : NResult String Msg := do
-  let res := enumerateResults fuel tid pstate.initmem isem (termination tid) pstate.threadStates[tid] pstate.mem
+    (isem : SailM Unit) (termination : TerminationCondition n) : NResult String Msg := do
+  let res := enumerateResults fuel tid pstate.initmem isem termination pstate.threadStates[tid] pstate.mem
   if res.out_of_fuel then
     match (← NResult.chooseFin 2) with
     | 0 => NResult.error "out of fuel"
@@ -608,13 +598,13 @@ def promiseSelectTid (fuel : Nat) (pstate : ModelState n) (tid : Fin n)
     NResult.fromResults res.promises
 
 def cpromiseTid (fuel : Nat) (tid : Fin n) (isem : SailM Unit)
-    (termination : TerminationCondition) : NEStateM (ModelState n) String Unit := do
+    (termination : TerminationCondition n) : NEStateM (ModelState n) String Unit := do
   let pstate ← get
   let ev ← promiseSelectTid fuel pstate tid isem termination
   modify (fun _ => promiseTid tid ev pstate)
 
 def runStep (fuel : Nat) (isem : SailM Unit)
-    (termination : TerminationCondition) : NEStateM (ModelState n) String Unit := do
+    (termination : TerminationCondition n) : NEStateM (ModelState n) String Unit := do
   let pstate ← get
   let tid ← NEStateM.chooseFin n
   if threadTerminated termination pstate tid then NEStateM.discard
@@ -624,7 +614,7 @@ def runStep (fuel : Nat) (isem : SailM Unit)
     | 1 => runThreadInstruction isem tid
 
 /- CR clang: archsem-rocq return a `final` (ModelStae + proof it satisfied termination condition). -/
-def run (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition)
+def run (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition n)
     : NEStateM (ModelState n) String (ModelState n) := do
   let pstate ← get
   if allThreadsTerminated termination pstate then
@@ -642,13 +632,13 @@ def run (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition)
  -/
 /- CR clang: strange that NEStateM has two copies of the ModelState in the output. -/
 partial def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
-    (termination : TerminationCondition) : NEStateM (ModelState n) String (ModelState n) := do
+    (termination : TerminationCondition n) : NEStateM (ModelState n) String (ModelState n) := do
   match fuel with
   | 0 => NEStateM.error "Promise first: out of fuel in main loop"
   | fuel' + 1 =>
     let pstate ← get
     let executionResults := Vector.ofFn (fun tid =>
-      enumerateResults fuel tid pstate.initmem isem (termination tid) pstate.threadStates[tid] pstate.mem)
+      enumerateResults fuel tid pstate.initmem isem termination pstate.threadStates[tid] pstate.mem)
     match (← NEStateM.chooseFin 4) with
     | 0 =>
       let tid ← NEStateM.chooseFin n

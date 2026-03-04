@@ -6,20 +6,6 @@ open Sail.ArchSem
 
 /- CR clang: there is some duplication here with sequentialtests. -/
 
-instance : DecidableEq Arch.register := by
-  have eq : Arch.register = Register := rfl
-  rw [eq]
-  infer_instance
-instance : Hashable Arch.register := by
-  have eq : Arch.register = Register := rfl
-  rw [eq]
-  infer_instance
-
-instance : BEq (Arch.register_type ._PC) := by
-  have eq : Arch.register_type = RegisterType := rfl
-  rw [eq]
-  infer_instance
-
 section EOR
 
 def initialRegs : Std.ExtDHashMap Arch.register Arch.register_type :=
@@ -42,7 +28,7 @@ def initialState : ModelState 1 := {
   mem := [],
 }
 
-def termination (_tid : Nat) (regs : Std.ExtDHashMap Arch.register  Arch.register_type) : Bool :=
+def terminationCondition : TerminationCondition 1 := fun _tid regs =>
   regs.get? ._PC == .some (BitVec.ofNat 64 0x504)
 
 def isem : SailM Unit := Out.Functions.fetch_and_execute ()
@@ -52,9 +38,8 @@ def outputTState (tstate : ThreadState) : String :=
   let r0 : Option (BitVec 64) := (tstate.regs.get? .R0).map (Prod.fst)
   toString r0
 
-
 def testOutput : String :=
-  let res := runPromiseFirst fuel isem termination initialState
+  let res := runPromiseFirst fuel isem terminationCondition initialState
   match res.errors with
   | [] => "output:\n" ++ "\n".intercalate
     ((res.results.map Prod.snd).map (fun pstate => outputTState pstate.threadStates[0]))

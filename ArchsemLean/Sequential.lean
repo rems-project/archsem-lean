@@ -2,13 +2,12 @@ import Std.Data.ExtDHashMap
 import Std.Data.ExtHashMap
 import Sail
 import Out.Defs
+import ArchsemLean.Common
 
 open Sail
 open Sail.ArchSem
 
 namespace ArchSem.Sequential
-
-variable [Arch] [DecidableEq Arch.register] [Hashable Arch.register]
 
 structure ChoiceSource where
   (α : Type)
@@ -21,7 +20,7 @@ def trivialChoiceSource : ChoiceSource where
   choose _ _ _ := 0
 
 structure SequentialState (c : ChoiceSource) where
-  regs : Std.ExtDHashMap Arch.register Arch.register_type
+  regs : RegisterMap
   choiceState : c.α
   mem : Std.ExtHashMap Nat (BitVec 8)
   tags : Unit
@@ -109,12 +108,7 @@ def main_of_sail_main (initialState : SequentialState c) (main : Unit → PreSai
     IO.eprintln s!"Error while running the sail program!: {e.print}"
     return 1
 
-
-/- CR clang: These should be shared between models. -/
-abbrev RegisterMap := Std.ExtDHashMap Arch.register Arch.register_type
-abbrev TerminationCondition := RegisterMap → Bool
-
-def sequentialModel (fuel : Nat) (isem : PreSailM userError Unit) (termination : TerminationCondition)
+def sequentialModel (fuel : Nat) (isem : PreSailM userError Unit) (termination : TerminationCondition 1)
     : EStateM (Error userError) (SequentialState c) Unit :=
   match fuel with
   /- CR clang: out-of-fuel should not be an assertion error. Think about this. -/
@@ -122,7 +116,7 @@ def sequentialModel (fuel : Nat) (isem : PreSailM userError Unit) (termination :
   | fuel+1 => do
     sequentialInterpreter isem
     let st ← get
-    match termination st.regs with
+    match termination 0 st.regs with
     | true => return ()
     | false => sequentialModel fuel isem termination
 
