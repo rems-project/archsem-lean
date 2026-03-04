@@ -3,6 +3,7 @@ import Out.Defs
 import Out.TinyArm
 
 open Sail.ArchSem
+open ArchSem.Sequential
 
 /- CR clang for leo: I dont understand why lean4 cant figure this out in its own. -/
 instance : DecidableEq Arch.register := by
@@ -46,11 +47,16 @@ def initialState : SequentialState choiceSource := {
   sailOutput := Array.empty
 }
 
+def terminationCondition (regs : RegisterMap) :=
+  let pc : Option (BitVec 64) := regs.get? ._PC
+  pc == some 0x504
+
 def eor_output : String :=
-  /- CR clang: support running >1 instruction. -/
-  let freeMonad := Out.Functions.fetch_and_execute ()
-  let stateMonad := sequentialInterpreter freeMonad
-  let result := stateMonad.run initialState
+  let isem := Out.Functions.fetch_and_execute ()
+  let fuel := 20
+  let model := sequentialModel fuel isem terminationCondition
+  -- let stateMonad := sequentialInterpreter freeMonad
+  let result := model.run initialState
   /- CR clang: why cant this be (fun s => toString (s.regs.get? .R0)) -/
   outputSequentialState (fun s =>
     let out : Option (BitVec 64) := (s.regs.get? .R0)

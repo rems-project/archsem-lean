@@ -1,13 +1,14 @@
-import Sail.Sail
-
 import Std.Data.ExtDHashMap
 import Std.Data.ExtHashMap
+import Sail
+import Out.Defs
 
 open Sail
 open Sail.ArchSem
--- open PreSail.ConcurrencyInterfaceV2
-open PreSail
---open ArchSem
+
+namespace ArchSem.Sequential
+
+variable [Arch] [DecidableEq Arch.register] [Hashable Arch.register]
 
 structure ChoiceSource where
   (α : Type)
@@ -19,25 +20,26 @@ def trivialChoiceSource : ChoiceSource where
   nextState _ _ := ()
   choose _ _ _ := 0
 
-variable [Arch] [DecidableEq Arch.register] [Hashable Arch.register]
-
 structure SequentialState (c : ChoiceSource) where
   regs : Std.ExtDHashMap Arch.register Arch.register_type
   choiceState : c.α
   mem : Std.ExtHashMap Nat (BitVec 8)
   tags : Unit
-  cycleCount : Nat -- Part of the concurrency interface. See `{get_}cycle_count`
-  sailOutput : Array String -- TODO: be able to use the IO monad to run
+  cycleCount : Nat
+  sailOutput : Array String -- TODO: be able to use an IO monad to run
 
-def readByte (addr : Nat) : EStateM (Error ue) (SequentialState c) (BitVec 8) := do
+def readByte (addr : Nat)
+    : EStateM (Error ue) (SequentialState c) (BitVec 8) := do
   let .some s := (← get).mem.get? addr
     | throw (.OutOfMemoryRange addr)
   pure s
 
-def writeByte (addr : Nat) (value : BitVec 8) : EStateM (Error ue) (SequentialState c) PUnit := do
+def writeByte (addr : Nat) (value : BitVec 8)
+    : EStateM (Error ue) (SequentialState c) PUnit := do
   modify fun s => { s with mem := s.mem.insert addr value }
 
-def readBytes (size : Nat) (addr : Nat) : EStateM (Error ue) (SequentialState c) (BitVec (8 * size)) :=
+def readBytes (size : Nat) (addr : Nat)
+    : EStateM (Error ue) (SequentialState c) (BitVec (8 * size)) :=
   match size with
   | 0 => pure BitVec.nil
   | 1 => do
@@ -50,7 +52,8 @@ def readBytes (size : Nat) (addr : Nat) : EStateM (Error ue) (SequentialState c)
     have h : 8 * n + 8 = 8 * (n + 1) := by omega
     return (h ▸ bytes.append b)
 
-def writeBytes (addr : Nat) (value : BitVec (8 * size)) : EStateM (Error ue) (SequentialState c) PUnit :=
+def writeBytes (addr : Nat) (value : BitVec (8 * size))
+    : EStateM (Error ue) (SequentialState c) PUnit :=
   let list := List.ofFn (fun i : Fin size => (addr + i.val, value.extractLsb' (i.val * 8 + 8) 8))
   List.forM list (fun (a, v) => writeByte a v)
 
@@ -61,8 +64,6 @@ def interpretEffect : (eff : InstructionEffect) → EStateM (Error userError) (S
     pure s
   | .regWrite reg _accessType value =>
     modify fun s => { s with regs := s.regs.insert reg value }
-    /- CR clang: the current sail-lean read bytes state monad implementation is really weird. -/
-    /- CR clang: check I'm doing the right edianness here... -/
   | .memRead req => do
     let addr := req.address.toNat
     let value ← readBytes req.size addr
@@ -75,11 +76,9 @@ def interpretEffect : (eff : InstructionEffect) → EStateM (Error userError) (S
   | .barrier _barrier => .pure ()
   | .cacheOp _op => .pure ()
   | .tlbOp _op => .pure ()
-  /-
-   - CR clang: Ahh, this makes me feel bad. Ideally we should 'reverse' back when we find a choice 0.
-   - CR clang for thibaut: Maybe we change the Effect type to disallow `choice 0`?
-   -/
-  | .choice 0 => throw .Unreachable
+  | .choice 0 => throw (.Assertion
+    "This sequential memory model does not support backtracking nondeterminisim. \
+     Use a smarter memory consistency model or a dumber ISA model.")
   | .choice (n+1) =>
     modifyGet (fun σ => (c.choose _ σ.choiceState, { σ with choiceState := c.nextState n σ.choiceState }))
   | .clockCycle => modify fun s => { s with cycleCount := s.cycleCount + 1 }
@@ -109,3 +108,22 @@ def main_of_sail_main (initialState : SequentialState c) (main : Unit → PreSai
       IO.print m
     IO.eprintln s!"Error while running the sail program!: {e.print}"
     return 1
+
+
+/- CR clang: These should be shared between models. -/
+abbrev RegisterMap := Std.ExtDHashMap Arch.register Arch.register_type
+abbrev TerminationCondition := RegisterMap → Bool
+
+def sequentialModel (fuel : Nat) (isem : PreSailM userError Unit) (termination : TerminationCondition)
+    : EStateM (Error userError) (SequentialState c) Unit :=
+  match fuel with
+  /- CR clang: out-of-fuel should not be an assertion error. Think about this. -/
+  | 0 => throw (.Assertion "out of fuel")
+  | fuel+1 => do
+    sequentialInterpreter isem
+    let st ← get
+    match termination st.regs with
+    | true => return ()
+    | false => sequentialModel fuel isem termination
+
+end ArchSem.Sequential
