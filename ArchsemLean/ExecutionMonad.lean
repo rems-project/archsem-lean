@@ -22,11 +22,11 @@ def hasError (e : NResult ε α) : Bool :=
 
 def merge (m1 m2 : NResult ε α) : NResult ε α :=
   { results := m1.results ++ m2.results, errors := m1.errors ++ m2.errors }
-def fromResults (s : List α) : NResult ε α :=
+def choose (s : List α) : NResult ε α :=
   { results := s, errors := [] }
 def error (e : ε) : NResult ε α := { results := [], errors := [e] }
 
-def chooseFin (n : Nat) : NResult ε (Fin n) := { results := List.finRange n, errors := []}
+def chooseFin (n : Nat) : NResult ε (Fin n) := choose (List.finRange n)
 
 /- CR clang: Maybe to `Except` list? -/
 def toResultList (m : NResult ε α) : List (Except ε α) :=
@@ -66,15 +66,15 @@ def NEStateM (σ ε α : Type) : Type := σ → NResult (σ × ε) (σ × α)
 
 namespace NEStateM
 
-def results (res : List α) : NEStateM σ ε α :=
-  fun s => NResult.fromResults (res.map (fun r => (s, r)))
-def errors (errors : List ε) : NEStateM σ ε α :=
+def choose (res : List α) : NEStateM σ ε α :=
+  fun s => NResult.choose (res.map (fun r => (s, r)))
+def throwErrors (errors : List ε) : NEStateM σ ε α :=
   fun s => { results := [], errors := errors.map (fun e => (s, e))}
 def discard : NEStateM σ ε α :=
   fun _ => { results := [], errors := [] }
 
 instance : Functor (NEStateM σ ε) where
-  map f e := fun st => (fun (st, a) => (st, f a)) <$> (e st)
+  map f e := fun s =>  Functor.map (fun (s, a) => (s, f a)) (e s)
 
 instance : Monad (NEStateM σ ε) where
   pure a := fun s => pure (s, a)
@@ -94,17 +94,13 @@ instance : MonadLift (NResult ε) (NEStateM σ ε) where
     { results := r.results.map (fun a => (s, a))
     , errors := r.errors.map (fun e => (s, e)) }
 
-def error (err : ε) : NEStateM σ ε α := errors [err]
-def chooseFin (n : Nat) : NEStateM σ ε (Fin n) := results (List.finRange n)
+def error (err : ε) : NEStateM σ ε α := throwErrors [err]
+def chooseFin (n : Nat) : NEStateM σ ε (Fin n) := choose (List.finRange n)
 
 def discardNone : Option α → NEStateM σ ε α
   | some a => pure a
   | none => discard
 
-/- CR clang: Maybe rename liftState{,Full} functions? -/
-/- CR clang for leo: Lets talk about this: -/
-def liftState (getter : σ → σ') (inner : NEStateM σ' ε α) : NEStateM σ ε α
-  := sorry
 def liftStateFull (getter : σ → σ') (setter : σ' → σ → σ)
     (inner : NEStateM σ' ε α) : NEStateM σ ε α :=
   fun s => NResult.mapState (fun s' => setter s' s) (inner (getter s))

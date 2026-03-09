@@ -3,6 +3,7 @@ import Out.TinyArm
 import ArchsemLean.Promising
 
 open Sail.ArchSem
+open ArchSem.Promising
 
 /- CR clang: there is some duplication here with sequentialtests. -/
 
