@@ -1,6 +1,5 @@
 import Out.Defs
 import Out.TinyArm
-import ArchsemLean.Sequential
 import ArchsemLean.ExecutionMonad
 import ArchsemLean.Common
 
@@ -52,7 +51,7 @@ structure Msg where
   tid : Tid
   loc : Loc
   val : Value
-deriving DecidableEq
+deriving DecidableEq, Repr
 
 def InitialMem := Std.ExtHashMap Loc Value
 
@@ -223,7 +222,7 @@ def exclusive (loc : Loc) (t : Timestamp) (mem : PromisingMemory) : Bool :=
         (fun (msg' : Msg) => (msg'.tid == msg.tid) || !(msg'.loc == msg.loc))
     else false
 
-def ThreadState.init (regs : Std.ExtDHashMap Arch.register Arch.register_type) : ThreadState :=
+def ThreadState.init (regs : RegisterMap) : ThreadState :=
   { promises := []
   , regs := regs.map (fun _r rv => (rv, 0))
   , coh := default
@@ -343,7 +342,7 @@ def writeMemXcl (tid : Nat) (loc : Loc)
     (vdata : View) (macc : Arch.mem_acc)
     (mem : PromisingMemory) (data : Value)
     : NEStateM ThreadState String (PromisingMemory × Option View) := do
-  if Arch.mem_acc_is_atomic_rmw macc then Except.error "Atomic RMW unsupported"
+  if Arch.mem_acc_is_atomic_rmw macc then Except.error "Atomic RMW unsupported" else
   let xcl := Arch.mem_acc_is_exclusive macc
   if xcl then
     let (mem, time, vpreOpt) ← writeMem tid loc vdata macc mem data
@@ -360,7 +359,6 @@ def writeMemXcl (tid : Nat) (loc : Loc)
     let (mem, time, vpreOpt) ← writeMem tid loc vdata macc mem data
     modify (ThreadState.setForwardingItem loc { time, view := vdata, xcl := false })
     return (mem, vpreOpt)
-
 
 
 /- CR clang: Do I like these names. If so, stop using `pstate` for ModelState variables. -/
@@ -476,9 +474,9 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
     match memReq.size with
     | 8 =>
       let loc ← match Loc.fromAddr memReq.address with
-        | .none => Except.error "Physical address not supported"
+        | .none => Except.error "Address not supported"
         | .some loc => pure loc
-      if ¬Arch.mem_acc_is_explicit memReq.accessKind then Except.error "Unsupported non-explicit write"
+      if !Arch.mem_acc_is_explicit memReq.accessKind then Except.error "Unsupported non-explicit write" else
       let mem := (← get).mem
       let vdata := (← get).iis.strict
       let (mem, vpreOpt) ← writeMemXcl tid loc vdata memReq.accessKind mem val
@@ -499,11 +497,12 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
     let ts := (← get).threadState
     modify ({ · with threadState := {ts with visb := ts.vcap} })
     return ((), none)
-  /- CR clang: some more instructions needed here. clock, print, errors, tsb, etc -/
+  -- CR clang: I need to implement other effects.
   | _ => Except.error "Unsupported effect"
 
 end InstructionSemantics
 
+-- CR clang: comment this section. Maybe I could improve naming too.
 section ModelEvaluation
 
 def threadTerminated
@@ -533,7 +532,9 @@ def interpreter (handler : (eff : InstructionEffect) → NEStateM σ String (eff
 
 def runThreadInstruction (isem : SailM Unit) (tid : Fin n) : NEStateM (ModelState n) String Unit := do
   let pstate ← get
-  let handler (eff : InstructionEffect) := return (← runOutcome tid pstate.initmem eff).fst
+  let handler (eff : InstructionEffect) := do
+    return (←runOutcome tid pstate.initmem eff).fst
+  -- CR clang: maybe I could automatically lift this?
   NEStateM.liftStateFull (projectModelState tid) (injectModelState tid) (interpreter handler isem)
 
 def promiseTid (tid : Fin n) (msg : Msg) (pstate : ModelState n)
@@ -543,12 +544,14 @@ def promiseTid (tid : Fin n) (msg : Msg) (pstate : ModelState n)
     mem := msg :: pstate.mem
     /- A Vector.getSet function would make this cleaner. -/
     threadStates := pstate.threadStates.set tid
-      (pstate.threadStates[tid].promise pstate.mem.length)
+      (pstate.threadStates[tid].promise (pstate.mem.length + 1))
   }
 
 def runOutcomeWithPromise (tid : Nat) (initmem : InitialMem)
     (base : View) (out : InstructionEffect)
     : NEStateM (List Msg × ProjectedModelState) String (InstructionEffect.ret out) := do
+  -- CR clang: auto lift this also?
+  /- Run the effect on the ProjectedModelState. -/
   let (res, vpreOpt) ← NEStateM.liftStateFull Prod.snd
     (fun ppstate state => (state.fst, ppstate) )
     (runOutcome tid initmem out)
@@ -571,15 +574,23 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     : NEStateM (List Msg × ProjectedModelState) String Bool := do
   match fuel with
   | 0 =>
+    /- If out of fuel and still not terminated then return false. -/
     let ts := (← get).snd.threadState
     return (termination tid ts.regMap)
   | fuel + 1 => do
+    /- Run one instruction on this thread. -/
     let handler := runOutcomeWithPromise tid initmem base
     interpreter handler isem
+    /-
+    If we have terminated then return true.
+    Otherwise, reset the inter-instruction state and run the next instruction.
+    -/
     let ts := (← get).snd.threadState
-    if termination tid ts.regMap then return true else
-    modify (fun s => (s.fst, { s.snd with iis := IIS.init }))
-    runToTermination tid initmem isem termination fuel base
+    if termination tid ts.regMap then
+      return true
+    else
+      modify (fun s => (s.fst, { s.snd with iis := IIS.init }))
+      runToTermination tid initmem isem termination fuel base
 
 structure EnumerationResult where
   promises : List Msg
@@ -590,17 +601,19 @@ structure EnumerationResult where
 def enumerateResults (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     (termination : TerminationCondition n) (ts : ThreadState) (mem : PromisingMemory) : EnumerationResult :=
   let base := mem.length
-  let execResult := runToTermination tid initmem isem termination fuel base
   let st : List Msg × ProjectedModelState := ([], { threadState := ts, mem := mem, iis := IIS.init })
-  let res := execResult st
+  let res := runToTermination tid initmem isem termination fuel base st
   let successStates := res.results.map Prod.fst
   let outOfFuel := res.results.any (fun r => not r.snd)
   let promises := (successStates.map Prod.fst).flatten.eraseDups
-  let tstates := successStates.filterMap (fun (newProms, st) =>
+  let finalStates := successStates.filterMap (fun (newProms, st) =>
     if newProms.isEmpty then some st.threadState else none)
+  -- CR clang for thibaut: Why are errors filtered here by empty promising list?
+  -- This was causing me so much confusion on Friday.
   let errors := res.errors.filterMap (fun ((newProms, _), errMsg) =>
     if newProms.isEmpty then some errMsg else none)
-  { promises := promises, final_states := tstates, errors := errors, out_of_fuel := outOfFuel }
+  --let errors := res.errors.map Prod.snd
+  { promises := promises, final_states := finalStates, errors := errors, out_of_fuel := outOfFuel }
 
 def promiseSelectTid (fuel : Nat) (pstate : ModelState n) (tid : Fin n)
     (isem : SailM Unit) (termination : TerminationCondition n) : NResult String Msg := do
@@ -628,7 +641,8 @@ def runStep (fuel : Nat) (isem : SailM Unit)
     (termination : TerminationCondition n) : NEStateM (ModelState n) String Unit := do
   let pstate ← get
   let tid ← NEStateM.chooseFin n
-  if threadTerminated termination pstate tid then NEStateM.discard
+  if threadTerminated termination pstate tid then
+    NEStateM.discard
   else
     match (← NEStateM.chooseFin 2) with
     | 0 => cpromiseTid fuel tid isem termination
@@ -651,39 +665,42 @@ def run (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition n)
       runStep (fuel' + 1) isem termination
       run fuel' isem termination
 
-/- CR clang for thibaut: strange that NEStateM has two copies of the ModelState in the output? -/
+/- CR clang: strange that NEStateM has two copies of the ModelState in the output. -/
 /--
 Computationally evaluate all the possible allowed final states according to the
 promising model with promise-first optimization. The size of fuel should be at
 least `(# of promises) + max(# of instructions) + 1`.
 -/
-partial def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
+def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     (termination : TerminationCondition n) : NEStateM (ModelState n) String (ModelState n) := do
   if fuel == 0 then NEStateM.error "Promise first: out of fuel in main loop" else
   let pstate ← get
-  /- Find out next possible promises or terminating states for each thread -/
+  /- Find next possible promises or terminating states for each thread. -/
   let executionResults := Vector.ofFn (fun tid =>
     enumerateResults fuel tid pstate.initmem isem termination pstate.threadStates[tid] pstate.mem)
   match (← NEStateM.chooseFin 4) with
-  | 0 => /- Make promises. -/
+  | 0 =>
+    /- We can make any promise from any thread from those available in the execution results. -/
     let tid ← NEStateM.chooseFin n
     let nextEv ← NEStateM.choose executionResults[tid].promises
     modify (fun pstate => promiseTid tid nextEv pstate)
     runPromiseFirst (fuel - 1) isem termination
-  | 1 => /- Terminate. -/
-    /- Compute cartesian products of the possible thread states. -/
+  | 1 =>
+    /-
+    If there is some choice of final states from each thread that form a valid terminated model state
+    then we can return it.
+    -/
     let tstates ← executionResults.mapM (fun r => NEStateM.choose r.final_states)
-    /- Lift them into full promising state. -/
     let pstate : ModelState n := { threadStates := tstates, initmem := pstate.initmem, mem := pstate.mem }
-    /- Discard the one with pending promises in any thread. -/
     if !noPromises pstate then NEStateM.discard else
-    /- Discard the non-terminated ones. -/
     if !allThreadsTerminated termination pstate then NEStateM.discard else
     pure pstate
-  | 2 => /- Throw errors. -/
+  | 2 =>
+    /- Throw all errors in the execution results. -/
     let errs := executionResults.toList.map EnumerationResult.errors |>.flatten
     NEStateM.throwErrors errs
-  | 3 => /- Out of fuel. -/
+  | 3 =>
+    /- Throw any out of fuel errors in execution results. -/
     if executionResults.toList.any EnumerationResult.out_of_fuel then
       NEStateM.error "Promise first: out of fuel in enumeration"
     else

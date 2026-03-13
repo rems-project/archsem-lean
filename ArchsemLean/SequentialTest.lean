@@ -28,7 +28,7 @@ def outputSequentialState (info : SequentialState choiceSource → String)
     s!"error: {e.print}\n" ++ "\n".intercalate s.sailOutput.toList
 
 /- Run EOR X0, X1, X2 at pc address 0x500, whose opcode is 0xca020020 -/
-section EOR
+namespace EOR
 
 def choiceSource := trivialChoiceSource
 def initialState : SequentialState choiceSource := {

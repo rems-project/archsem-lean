@@ -53,7 +53,7 @@ def readBytes (size : Nat) (addr : Nat)
 
 def writeBytes (addr : Nat) (value : BitVec (8 * size))
     : EStateM (Error ue) (SequentialState c) PUnit :=
-  let list := List.ofFn (fun i : Fin size => (addr + i.val, value.extractLsb' (i.val * 8 + 8) 8))
+  let list := List.ofFn (fun i : Fin size => (addr + i.val, value.extractLsb' (i.val * 8) 8))
   List.forM list (fun (a, v) => writeByte a v)
 
 def interpretEffect : (eff : InstructionEffect) → EStateM (Error userError) (SequentialState c) (eff.ret)
