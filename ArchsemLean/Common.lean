@@ -9,6 +9,7 @@ open Sail.ArchSem
  - have this typeclass instance in Arch.
  - It would be nice to have toString instances for registers and register types.
  -/
+/-
 instance (reg : Register) : BEq (Arch.register_type reg) := by
   have eq : Arch.register_type = RegisterType := rfl
   rw [eq]
@@ -24,6 +25,7 @@ instance (reg : Register) : Repr (Arch.register_type reg) := by
   rw [eq]
   rw [RegisterType.eq_def]
   split <;> infer_instance
+-/
 
 
 /-

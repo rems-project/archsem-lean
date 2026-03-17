@@ -24,10 +24,12 @@ def memInsert4 (addr : BitVec 64) (value : BitVec 32) (mem : InitialMem) :=
     let word := word ||| value
     mem.insert (addr >>> 3) word
 
-def extractRegs (regs : List (Fin n × Register)) (mstate : ModelState n) : List String :=
-  let getRegValueD (tid : Fin n) (reg : Register) : Arch.register_type reg :=
-    mstate.threadStates[tid].regs.getD reg (default, 0) |> Prod.fst
-  regs.map (fun (tid,reg) => getRegValueD tid reg |> reprStr)
+def extractRegs (regs : List (Fin n × Register)) (mstate : ModelState n)
+    : List (Option String) :=
+  let getRegValue (tid : Fin n) (reg : Register)
+      : Option (Arch.register_type reg) :=
+    mstate.threadStates[tid].regs.get? reg |> Option.map Prod.fst
+  regs.map (fun (tid,reg) => getRegValue tid reg |> Option.map reprStr)
 
 def prepareTestResults [BEq α] [Hashable α] (extractor : ModelState n → α)
     (res : ExecutionMonad.NResult (ModelState n × String) (ModelState n × ModelState n) )
@@ -63,8 +65,9 @@ def terminationCondition : TerminationCondition nThreads := fun _tid regs =>
   regs.get? ._PC == .some (BitVec.ofNat 64 0x504)
 
 def fuel := 1
-def finalStateExtractor : ModelState nThreads → List String := extractRegs [(0, .R0)]
-def expectedFinalStates := Std.HashSet.ofList [["0x0000000000000110#64"]]
+def finalStateExtractor : ModelState nThreads → List (Option String)
+  := extractRegs [(0, .R0)]
+def expectedFinalStates := Std.HashSet.ofList [[some "0x0000000000000110#64"]]
 
 def results := run fuel isem terminationCondition initialState
 def output := prepareTestResults finalStateExtractor results
@@ -136,12 +139,13 @@ def terminationCondition : TerminationCondition nThreads := fun tid regs =>
   | 1 => regs.get? ._PC == .some (BitVec.ofNat 64 0x608)
 
 def fuel := 6
-def finalStateExtractor : ModelState nThreads → List String := extractRegs [(1, .R5), (1, .R2)]
+def finalStateExtractor : ModelState nThreads → List (Option String)
+  := extractRegs [(1, .R5), (1, .R2)]
 def expectedFinalStates := Std.HashSet.ofList [
-  ["0x0000000000000001#64", "0x000000000000002a#64"],
-  ["0x0000000000000001#64", "0x0000000000000000#64"],
-  ["0x0000000000000000#64", "0x000000000000002a#64"],
-  ["0x0000000000000000#64", "0x0000000000000000#64"]]
+  [some "0x0000000000000001#64", some "0x000000000000002a#64"],
+  [some "0x0000000000000001#64", some "0x0000000000000000#64"],
+  [some "0x0000000000000000#64", some "0x000000000000002a#64"],
+  [some "0x0000000000000000#64", some "0x0000000000000000#64"]]
 
 def results := run fuel isem terminationCondition initialState
 def output := prepareTestResults finalStateExtractor results
