@@ -1,5 +1,6 @@
 import Out.Defs
 import Out.TinyArm
+import Std.Data.HashSet
 import ArchsemLean.Promising
 
 open Sail.ArchSem
@@ -23,28 +24,18 @@ def memInsert4 (addr : BitVec 64) (value : BitVec 32) (mem : InitialMem) :=
     let word := word ||| value
     mem.insert (addr >>> 3) word
 
--- CR clang: get rid of this..
---def getPC (ts : ThreadState) : BitVec 64 :=
---  ts.regs.getD ._PC default |> Prod.fst
-
 def extractRegs (regs : List (Fin n × Register)) (mstate : ModelState n) : List String :=
   let getRegValueD (tid : Fin n) (reg : Register) : Arch.register_type reg :=
     mstate.threadStates[tid].regs.getD reg (default, 0) |> Prod.fst
   regs.map (fun (tid,reg) => getRegValueD tid reg |> reprStr)
 
-def prepareTestResults [BEq α] (extractor : ModelState n → α)
+def prepareTestResults [BEq α] [Hashable α] (extractor : ModelState n → α)
     (res : ExecutionMonad.NResult (ModelState n × String) (ModelState n × ModelState n) )
-    : List (Except String α) :=
-  let errToString (mstate : ModelState n) (err : String) :=
-    -- CR clang: remove this compments
-    --let pcs := mstate.threadStates.toList.mapIdx
-    --  (fun tid tstate =>
-    --    s!"T{tid}@0x{(getPC tstate).toHex}")
-    err -- ++ " " ++ (" ".intercalate pcs)
-  let errs := res.errors.map (fun (mstate,err) => Except.error (errToString mstate err))
+    : List String × Std.HashSet α :=
+  let errs := res.errors.map (fun (_mstate,err) => err)
   let finalStates := res.results.map Prod.snd
-  let results := finalStates.map (Except.ok ∘ extractor)
-  results.eraseDups ++ errs
+  let results := finalStates.map extractor
+  (errs, Std.HashSet.ofList results)
 
 namespace EOR
 
@@ -72,11 +63,17 @@ def terminationCondition : TerminationCondition nThreads := fun _tid regs =>
   regs.get? ._PC == .some (BitVec.ofNat 64 0x504)
 
 def fuel := 1
+def finalStateExtractor : ModelState nThreads → List String := extractRegs [(0, .R0)]
+def expectedFinalStates := Std.HashSet.ofList [["0x0000000000000110#64"]]
 
-def testResults := runPromiseFirst fuel isem terminationCondition initialState
+def results := run fuel isem terminationCondition initialState
+def output := prepareTestResults finalStateExtractor results
 
-#guard prepareTestResults (extractRegs [(0, .R0)]) testResults ==
-  [Except.ok ["0x0000000000000110#64"]]
+def promiseFirstResults := runPromiseFirst fuel isem terminationCondition initialState
+def promiseFirstOutput := prepareTestResults finalStateExtractor results
+
+#guard output == promiseFirstOutput
+#guard output == ([], expectedFinalStates)
 
 end EOR
 
@@ -139,19 +136,20 @@ def terminationCondition : TerminationCondition nThreads := fun tid regs =>
   | 1 => regs.get? ._PC == .some (BitVec.ofNat 64 0x608)
 
 def fuel := 6
+def finalStateExtractor : ModelState nThreads → List String := extractRegs [(1, .R5), (1, .R2)]
+def expectedFinalStates := Std.HashSet.ofList [
+  ["0x0000000000000001#64", "0x000000000000002a#64"],
+  ["0x0000000000000001#64", "0x0000000000000000#64"],
+  ["0x0000000000000000#64", "0x000000000000002a#64"],
+  ["0x0000000000000000#64", "0x0000000000000000#64"]]
 
-def testResults := run fuel isem terminationCondition initialState
-def promisingFirstTestResults := runPromiseFirst fuel isem terminationCondition initialState
+def results := run fuel isem terminationCondition initialState
+def output := prepareTestResults finalStateExtractor results
 
-def testOutput := prepareTestResults (extractRegs [(1, .R5), (1, .R2)]) testResults
-def promisingFirstTestOutput := prepareTestResults (extractRegs [(1, .R5), (1, .R2)]) promisingFirstTestResults
+def promiseFirstResults := runPromiseFirst fuel isem terminationCondition initialState
+def promiseFirstOutput := prepareTestResults finalStateExtractor results
 
--- CR clang: TODO use a set instead of list to allow for reordering...
-#guard testOutput == promisingFirstTestOutput
-#guard testOutput == [
-  Except.ok ["0x0000000000000001#64", "0x000000000000002a#64"],
-  Except.ok ["0x0000000000000001#64", "0x0000000000000000#64"],
-  Except.ok ["0x0000000000000000#64", "0x000000000000002a#64"],
-  Except.ok ["0x0000000000000000#64", "0x0000000000000000#64"]]
+#guard output == promiseFirstOutput
+#guard output == ([], expectedFinalStates)
 
 end MP
