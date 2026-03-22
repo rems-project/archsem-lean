@@ -38,6 +38,38 @@ instance [BEq α] [BEq β] : BEq (Except α β) where
     | .ok v1, .ok v2 => v1 == v2
     | _, _ => false
 
+class ArchExtra [Arch] where
+  /- Comparison instances. -/
+  register_type_deq (reg : Arch.register) : DecidableEq (Arch.register_type reg)
+  /- Repr instances. -/
+  addr_space_repr : Repr Arch.addr_space
+  register_repr : Repr Arch.register
+  register_type_repr (reg : Arch.register) : Repr (Arch.register_type reg)
+  mem_acc_repr : Repr Arch.mem_acc
+  trans_start_repr : Repr Arch.trans_start
+  trans_end_repr : Repr Arch.trans_end
+  abort_repr : Repr Arch.abort
+  barrier_repr : Repr Arch.barrier
+  cache_op_repr : Repr Arch.cache_op
+  tlbi_repr : Repr Arch.tlbi
+  exn_repr : Repr Arch.exn
+  sys_reg_id_repr : Repr Arch.sys_reg_id
+
+instance [ArchExtra] (reg : Arch.register) : DecidableEq (Arch.register_type reg) := ArchExtra.register_type_deq reg
+instance [ArchExtra] : Repr Arch.addr_space  := ArchExtra.addr_space_repr
+instance [ArchExtra] : Repr Arch.register    := ArchExtra.register_repr
+instance [ArchExtra] (reg : Arch.register) : Repr (Arch.register_type reg) := ArchExtra.register_type_repr reg
+instance [ArchExtra] : Repr Arch.mem_acc     := ArchExtra.mem_acc_repr
+instance [ArchExtra] : Repr Arch.trans_start := ArchExtra.trans_start_repr
+instance [ArchExtra] : Repr Arch.trans_end   := ArchExtra.trans_end_repr
+instance [ArchExtra] : Repr Arch.abort       := ArchExtra.abort_repr
+instance [ArchExtra] : Repr Arch.barrier     := ArchExtra.barrier_repr
+instance [ArchExtra] : Repr Arch.cache_op    := ArchExtra.cache_op_repr
+instance [ArchExtra] : Repr Arch.tlbi        := ArchExtra.tlbi_repr
+instance [ArchExtra] : Repr Arch.exn         := ArchExtra.exn_repr
+instance [ArchExtra] : Repr Arch.sys_reg_id  := ArchExtra.sys_reg_id_repr
+
+
 /-
  - If we are in a context where the number of threads is known then we prefer
  - to use `Fin nThreads`. But to avoid having to pass nThreads around everywhere,
@@ -46,7 +78,7 @@ instance [BEq α] [BEq β] : BEq (Except α β) where
  -/
 abbrev Tid := Nat
 
-abbrev RegisterMap [Arch] := Std.ExtDHashMap Arch.register Arch.register_type
-abbrev TerminationCondition [Arch] (nThreads : Nat) := Fin nThreads → RegisterMap → Bool
+abbrev RegisterMap [ArchExtra] := Std.ExtDHashMap Arch.register Arch.register_type
+abbrev TerminationCondition [ArchExtra] (nThreads : Nat) := Fin nThreads → RegisterMap → Bool
 
-def RegisterMap.empty : RegisterMap := Std.ExtDHashMap.emptyWithCapacity 64
+def RegisterMap.empty [ArchExtra] : RegisterMap := Std.ExtDHashMap.emptyWithCapacity 64

@@ -1,7 +1,6 @@
-import Out.Defs
-import Out.TinyArm
 import Std.Data.HashSet
-import ArchsemLean.Promising
+import ArchSemTinyArm.Promising
+import ArchSemTinyArm.Basic
 
 open Sail.ArchSem
 open ArchSem.Promising

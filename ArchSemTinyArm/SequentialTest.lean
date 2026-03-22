@@ -1,6 +1,5 @@
-import ArchsemLean.Sequential
-import Out.Defs
-import Out.TinyArm
+import ArchSemTinyArm.Sequential
+import ArchSemTinyArm.Basic
 
 open Sail.ArchSem
 open ArchSem.Sequential
@@ -52,7 +51,7 @@ def terminationCondition : TerminationCondition 1 := fun 1 (regs : RegisterMap) 
   pc == some 0x504
 
 def eor_output : String :=
-  let isem := Out.Functions.fetch_and_execute ()
+  let isem := sailTinyArmIsem
   let fuel := 20
   let model := sequentialModel fuel isem terminationCondition
   -- let stateMonad := sequentialInterpreter freeMonad

@@ -1,7 +1,6 @@
-import Out.Defs
-import Out.TinyArm
 import ArchsemLean.ExecutionMonad
 import ArchsemLean.Common
+import ArchSemTinyArm.Basic
 
 /-!
 This module contains a handwritten lean port of ArchSem rocq's
