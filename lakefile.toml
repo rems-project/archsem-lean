@@ -4,10 +4,9 @@ defaultTargets = ["ArchsemLean", "ArchSemTinyArm"]
 
 [[require]]
 name = "sail_tiny_arm"
-# The following lean-snapshot should be built with
-# sail: 50d0348da8664342230772ca1647b9eef05f6b7f
-# sail-tiny-arm: 8f17b71497fa2e4f8b275194989b6dbbc55dc97e
-path = "../sail-tiny-arm/lean-snapshot/out"
+git = "https://github.com/Chris-F5/sail-tiny-arm"
+rev = "archsem-lean"
+subDir = "lean-snapshot/out"
 
 [[lean_lib]]
 # CR clang for thibaut: Am I supposed to have uppercase 'S' in Archsem?
