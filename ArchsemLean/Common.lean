@@ -4,6 +4,14 @@ import Sail
 
 open Sail.ArchSem
 
+-- CR clang: Do I want an Int here or Nat?
+-- CR clang: maybe a better name or at least comment?
+inductive RegValGen where
+  | number (n : Int)
+  | string (s : String)
+  | array (l : List RegValGen)
+  | struct (l : List (String × RegValGen))
+
 /-
  - CR clang for leo: we should modify the Arch interface and sail-lean backend to
  - have this typeclass instance in Arch.
@@ -39,9 +47,14 @@ instance [BEq α] [BEq β] : BEq (Except α β) where
     | _, _ => false
 
 class ArchExtra [Arch] where
+  /- Inhabited instances. -/
+  addr_space_inhabited : Inhabited Arch.addr_space
   /- Comparison instances. -/
   register_type_deq (reg : Arch.register) : DecidableEq (Arch.register_type reg)
   addr_space_deq : DecidableEq Arch.addr_space
+  /- Conversions. -/
+  register_of_string : String → Except String Arch.register
+  register_type_of_gen (reg : Arch.register) : RegValGen → Except String (Arch.register_type reg)
   /- Repr instances. -/
   addr_space_repr : Repr Arch.addr_space
   register_repr : Repr Arch.register
@@ -56,6 +69,7 @@ class ArchExtra [Arch] where
   exn_repr : Repr Arch.exn
   sys_reg_id_repr : Repr Arch.sys_reg_id
 
+instance [ArchExtra] : Inhabited Arch.addr_space  := ArchExtra.addr_space_inhabited
 instance [ArchExtra] (reg : Arch.register) : DecidableEq (Arch.register_type reg) := ArchExtra.register_type_deq reg
 instance [ArchExtra] : DecidableEq Arch.addr_space  := ArchExtra.addr_space_deq
 instance [ArchExtra] : Repr Arch.addr_space  := ArchExtra.addr_space_repr

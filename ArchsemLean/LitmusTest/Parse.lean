@@ -1,77 +1,13 @@
 import Lake.Toml.ParserUtil
 import Sail
 
--- The above ParserUtil is documented in the following link
--- https://lean-lang.org/doc/api/Lake/Toml/ParserUtil.html
--- write a toml pasing "hello world" to print a field from
--- MP.archsem.toml which is in this project directory.
-
 import Lake.Toml
 import ArchsemLean.Common
+import ArchsemLean.LitmusTest.Basic
 
--- CR clang: Do I want an Int here or Nat?
-inductive RegValGen where
-  | number : Int → RegValGen
-  | string : String → RegValGen
-  | array : List RegValGen → RegValGen
-  | struct : List (String × RegValGen) → RegValGen
+open ArchSem.LitmusTest
 
-inductive MemoryKind where
-  | code
-  | data
-  | pageTable
-
-def MemoryKind.fromString? : String → Option MemoryKind
-  | "code" => some .code
-  | "data" => some .data
-  | "pagetable" => some .pageTable
-  | _ => .none
-
-/-
- - We need to record `step` so we know what size to use when comparing with this
- - symbol in a final memory condition.
- -/
-structure MemoryBlock where
-  addr : Nat
-  step : Nat
-  data : List (BitVec 8)
-  sym : Option String
-  kind : MemoryKind
-
-inductive FinalRegisterCondition where
-  | RegEq : RegValGen → FinalRegisterCondition
-  | RegNe : RegValGen → FinalRegisterCondition
-
-structure FinalThreadCondition where
-  tid : Tid
-  regConditions : List (String × FinalRegisterCondition)
-
-inductive FinalMemoryWordCondition
-  | MemEq : Nat → FinalMemoryWordCondition
-  | MemNe : Nat → FinalMemoryWordCondition
-
-structure FinalMemoryCondition where
-  sym : String
-  addr : Nat
-  size : Nat
-  condition : FinalMemoryWordCondition
-
--- CR clang: difference between observable and unobservable?
-/--
- - A condition the system should be in when it terminates.
- - In the toml format this is an element of [[outcome]].
- -/
-inductive FinalCondition where
-  | Observable : List FinalThreadCondition → List FinalMemoryCondition → FinalCondition
-  | Unobservable : List FinalThreadCondition → List FinalMemoryCondition → FinalCondition
-
-structure TestRepr where
-  arch : String
-  name : String
-  registers : List (List (String × RegValGen))
-  memory : List MemoryBlock
-  termCond : List (List (String × RegValGen))
-  finalConditions : List FinalCondition
+namespace ArchSem.LitmusTest.Parse
 
 /- Toml helper functions. -/
 def tomlFindStringElse (table : Lake.Toml.Table) (name : Lean.Name) (e : ε)
@@ -177,8 +113,8 @@ def tomlToFinalRegisterConditions (table : Lake.Toml.Table)
     | .some v => tomlToRegValGen v
     | .none => Except.error "Failed to find register condition value"
     match op with
-    | "eq" => pure (reg.toString, FinalRegisterCondition.RegEq val)
-    | "ne" => pure (reg.toString, FinalRegisterCondition.RegNe val)
+    | "eq" => pure (reg.toString, FinalRegisterCondition.regEq val)
+    | "ne" => pure (reg.toString, FinalRegisterCondition.regNe val)
     | _ => Except.error s!"Invalid final register condition op '{op}'"
   )
 
@@ -205,12 +141,12 @@ def tomlToFinalMemoryWordCondition (toml : Lake.Toml.Value)
     let op ← tomlFindStringElse condTable `op "Failed to parse final memory condition op"
     let val ← tomlFindNatElse condTable `val "Failed to parse final memory condition value"
     match op with
-    | "eq" => pure (.MemEq val)
-    | "ne" => pure (.MemNe val)
+    | "eq" => pure (.memEq val)
+    | "ne" => pure (.memNe val)
     | _ => Except.error "Invalid op in final memory condition"
   | .integer _ i => do
     if i < 0 then Except.error "Failed to parse negative final memory condition"
-    pure (.MemEq i.toNat)
+    pure (.memEq i.toNat)
   | _ => Except.error "Failed to parse final memory word condition"
 
 def tomlToFinalMemoryConditions (table : Lake.Toml.Table) (mem : List MemoryBlock)
@@ -268,3 +204,20 @@ def tomlToTestRepr (toml : Lake.Toml.Table) : Except String TestRepr := do
     | .some (.array _ a) => tomlToFinalConditions a memory
     | _ => Except.error "Failed to parse 'outcome' field"
   pure { arch, name, registers, termCond, memory, finalConditions }
+
+def readTomlFile (fname : System.FilePath) : IO Lake.Toml.Table := do
+  let input ← IO.FS.readFile fname
+  let ictx := Lean.Parser.mkInputContext input fname.toString
+  match (← Lake.Toml.loadToml ictx |>.toBaseIO) with
+    | .ok t => pure t
+    | .error log => do
+      let logStr ← Lake.mkMessageLogString log
+      throw (IO.Error.userError s!"Failed to parse TOML:\n{logStr}")
+
+def readTestFile (fname : System.FilePath) : IO TestRepr := do
+  let table ← readTomlFile fname
+  match Parse.tomlToTestRepr table with
+  | .ok repr => pure repr
+  | .error e => throw (IO.Error.userError s!"Failed to parse Litmus Test: {e}")
+
+end ArchSem.LitmusTest.Parse

@@ -14,6 +14,11 @@ abbrev Address := BitVec Arch.addr_size
 def MemoryMap := Std.HashMap Address (BitVec 8)
 deriving BEq
 def MemoryMap.empty : MemoryMap := Std.HashMap.emptyWithCapacity 1024
+def MemoryMap.readByte (addr : Address) (mem : MemoryMap) : BitVec 8 :=
+  mem.getD addr 0
+def MemoryMap.read (size : Nat) (addr : Address) (mem : MemoryMap) : BitVec (8 * size) :=
+  let bytes : Vector (BitVec 8) size := Vector.ofFn (fun i => mem.readByte (addr + i.val))
+  Sail.vecbytes_to_bitvec bytes
 def MemoryMap.insertByte (addr : Address) (byte : BitVec 8) (mem : MemoryMap)
     : MemoryMap :=
   mem.insert addr byte

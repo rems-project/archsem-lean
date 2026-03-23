@@ -4,6 +4,7 @@ import ArchSemTinyArm.Basic
 open Sail.ArchSem
 open ArchSemTinyArm.Sequential
 open ArchSem.TerminatingModel
+open ArchSemTinyArm
 
 /- CR clang for leo: I dont understand why lean4 cant figure this out in its own. -/
 instance : DecidableEq Arch.register := by

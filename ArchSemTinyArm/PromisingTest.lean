@@ -4,6 +4,7 @@ import ArchSemTinyArm.Basic
 open Sail.ArchSem
 open ArchSem.TerminatingModel
 open ArchSemTinyArm.Promising
+open ArchSemTinyArm
 
 /- CR clang: there is some duplication here with sequential tests. -/
 
