@@ -2,12 +2,16 @@ import Std.Data.ExtDHashMap
 import Std.Data.ExtHashMap
 import Sail
 import ArchsemLean.Common
+import ArchsemLean.TerminatingModel
 import ArchSemTinyArm.Basic
 
 open Sail
 open Sail.ArchSem
+open ArchSem.TerminatingModel
 
-namespace ArchSem.Sequential
+namespace ArchSemTinyArm.Sequential
+
+/- CR clang: modify this sequential model to enumerate results instead of having a choice source. -/
 
 structure ChoiceSource where
   (α : Type)
@@ -27,6 +31,7 @@ structure SequentialState (c : ChoiceSource) where
   cycleCount : Nat
   sailOutput : Array String -- TODO: be able to use an IO monad to run
 
+-- CR clang: move these memory manipulation functions into MemoryMap namespace.
 def readByte (addr : Nat)
     : EStateM (Error ue) (SequentialState c) (BitVec 8) := do
   let .some s := (← get).mem.get? addr
@@ -51,6 +56,7 @@ def readBytes (size : Nat) (addr : Nat)
     have h : 8 * n + 8 = 8 * (n + 1) := by omega
     return (h ▸ bytes.append b)
 
+-- CR clang: Fairly sure this address calculation is bugged. I should not reimplement this.
 def writeBytes (addr : Nat) (value : BitVec (8 * size))
     : EStateM (Error ue) (SequentialState c) PUnit :=
   let list := List.ofFn (fun i : Fin size => (addr + i.val, value.extractLsb' (i.val * 8) 8))
@@ -94,6 +100,7 @@ def sequentialInterpreter : PreSailM userError Unit → EStateM (Error userError
   | .impure (.Err err) _cont => EStateM.throw err
   | .impure (.Ok eff) cont => EStateM.bind (interpretEffect eff) (fun r => sequentialInterpreter (cont r))
 
+/-
 def main_of_sail_main (initialState : SequentialState c) (main : Unit → PreSailM ue Unit) : IO UInt32 := do
   let stateM := sequentialInterpreter (main ())
   let res := stateM.run initialState
@@ -107,6 +114,7 @@ def main_of_sail_main (initialState : SequentialState c) (main : Unit → PreSai
       IO.print m
     IO.eprintln s!"Error while running the sail program!: {e.print}"
     return 1
+-/
 
 def sequentialModel (fuel : Nat) (isem : PreSailM userError Unit) (termination : TerminationCondition 1)
     : EStateM (Error userError) (SequentialState c) Unit :=
@@ -120,4 +128,4 @@ def sequentialModel (fuel : Nat) (isem : PreSailM userError Unit) (termination :
     | true => return ()
     | false => sequentialModel fuel isem termination
 
-end ArchSem.Sequential
+end ArchSemTinyArm.Sequential

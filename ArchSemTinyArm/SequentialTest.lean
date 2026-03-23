@@ -2,7 +2,8 @@ import ArchSemTinyArm.Sequential
 import ArchSemTinyArm.Basic
 
 open Sail.ArchSem
-open ArchSem.Sequential
+open ArchSemTinyArm.Sequential
+open ArchSem.TerminatingModel
 
 /- CR clang for leo: I dont understand why lean4 cant figure this out in its own. -/
 instance : DecidableEq Arch.register := by
@@ -32,7 +33,7 @@ namespace EOR
 def choiceSource := trivialChoiceSource
 def initialState : SequentialState choiceSource := {
   regs :=
-    (Std.ExtDHashMap.emptyWithCapacity 64)
+    (Std.DHashMap.emptyWithCapacity 64)
     |>.insert ._PC (BitVec.ofNat 64 0x500)
     |>.insert .R0 (BitVec.ofNat 64 0x0)
     |>.insert .R1 (BitVec.ofNat 64 0x11)

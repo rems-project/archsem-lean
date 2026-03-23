@@ -41,6 +41,7 @@ instance [BEq α] [BEq β] : BEq (Except α β) where
 class ArchExtra [Arch] where
   /- Comparison instances. -/
   register_type_deq (reg : Arch.register) : DecidableEq (Arch.register_type reg)
+  addr_space_deq : DecidableEq Arch.addr_space
   /- Repr instances. -/
   addr_space_repr : Repr Arch.addr_space
   register_repr : Repr Arch.register
@@ -56,6 +57,7 @@ class ArchExtra [Arch] where
   sys_reg_id_repr : Repr Arch.sys_reg_id
 
 instance [ArchExtra] (reg : Arch.register) : DecidableEq (Arch.register_type reg) := ArchExtra.register_type_deq reg
+instance [ArchExtra] : DecidableEq Arch.addr_space  := ArchExtra.addr_space_deq
 instance [ArchExtra] : Repr Arch.addr_space  := ArchExtra.addr_space_repr
 instance [ArchExtra] : Repr Arch.register    := ArchExtra.register_repr
 instance [ArchExtra] (reg : Arch.register) : Repr (Arch.register_type reg) := ArchExtra.register_type_repr reg
@@ -78,7 +80,21 @@ instance [ArchExtra] : Repr Arch.sys_reg_id  := ArchExtra.sys_reg_id_repr
  -/
 abbrev Tid := Nat
 
-abbrev RegisterMap [ArchExtra] := Std.ExtDHashMap Arch.register Arch.register_type
-abbrev TerminationCondition [ArchExtra] (nThreads : Nat) := Fin nThreads → RegisterMap → Bool
-
-def RegisterMap.empty [ArchExtra] : RegisterMap := Std.ExtDHashMap.emptyWithCapacity 64
+def ListSet (α : Type) [BEq α] := List α
+namespace ListSet
+variable [BEq α] [BEq β]
+def empty : ListSet α := []
+def contains (s : ListSet α) (a : α) : Bool := s.any (· == a)
+def insert (s : ListSet α) (a : α) : ListSet α :=
+  if s.contains a then s else a :: s
+def toList (s : ListSet α) : List α := s
+def ofList (l : List α) : ListSet α :=
+  l.foldl insert ListSet.empty
+def map (f : α → β) (s : ListSet α) := ListSet.ofList (s.toList.map f)
+def union (s₁ s₂ : ListSet α) : ListSet α :=
+  s₂.foldl ListSet.insert s₁
+instance : BEq (ListSet α) :=
+  inferInstanceAs (BEq (List α))
+instance [DecidableEq α] : DecidableEq (ListSet α) :=
+  inferInstanceAs (DecidableEq (List α))
+end ListSet

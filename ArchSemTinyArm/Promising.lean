@@ -1,6 +1,7 @@
 import ArchsemLean.ExecutionMonad
 import ArchsemLean.Common
 import ArchSemTinyArm.Basic
+import ArchsemLean.TerminatingModel
 
 /-!
 This module contains a handwritten lean port of ArchSem rocq's
@@ -15,11 +16,12 @@ mixed-size on top of the new interface.
 
 open Sail.ArchSem
 open ExecutionMonad
+open ArchSem.TerminatingModel
 
 /- CR clang: TODO copy over the descriptive comments from archsem. -/
 /- CR clang: TODO I should comment this code making references to the paper. https://sf.snu.ac.kr/publications/promising-arm-riscv.pdf -/
 
-namespace ArchSem.Promising
+namespace ArchSemTinyArm.Promising
 
 /--
 This model only works for 8-bytes aligned location, as there in no support for
@@ -34,6 +36,8 @@ def Loc.fromAddr (addr : BitVec 64) : Option Loc :=
   if BitVec.extractLsb 0 3 addr == BitVec.zero 3 then
     .some (BitVec.extractLsb 63 3 addr)
   else .none
+def Loc.toAddr (loc : Loc) : BitVec 64 :=
+  BitVec.append loc (BitVec.zero 3)
 
 /-- Register and memory values (all memory access are 8 bytes aligned -/
 abbrev Value := BitVec 64
@@ -52,10 +56,19 @@ structure Msg where
   val : Value
 deriving DecidableEq, Repr
 
-def InitialMem := Std.ExtHashMap Loc Value
+def InitialMem := Std.HashMap Loc Value
+def InitialMem.empty : InitialMem := Std.HashMap.emptyWithCapacity 1024
 
 /- All memory accesses 8 byte aligned. -/
 def InitialMem.read (init : InitialMem) (loc : Loc) : Option Value := init.get? loc
+def InitialMem.ofMemoryMap (mem : MemoryMap) : InitialMem :=
+  let insertByte (init : InitialMem) (addr : BitVec 64) (value : BitVec 8) : InitialMem :=
+    let lowerBits : BitVec 3 := addr.truncate 3
+    let loc : Loc := addr.extractLsb 63 3
+    let word := init.getD loc (BitVec.zero 64)
+    let newWord := BitVec.or word ((value.zeroExtend 64) <<< (8 * lowerBits.toNat))
+    init.insert loc newWord
+  mem.fold insertByte InitialMem.empty
 
 /--
 The promising memory: a list of events.
@@ -102,6 +115,11 @@ Provide the original timestamps as a additional value.
 def cutAfterWithTimestamps (t : Timestamp) (mem : PromisingMemory) : List (Msg × Timestamp) :=
   List.take (mem.length - t) (mem.attachTimestamps)
 
+def toMemoryMap (init : InitialMem) (mem : PromisingMemory) : MemoryMap :=
+  let latest : Std.HashMap Loc (BitVec (8*8)) :=
+    mem.foldl (fun m msg => m.insert msg.loc msg.val) init
+  latest.fold (fun m loc value => m.insert 8 (Loc.toAddr loc) value) MemoryMap.empty
+
 end PromisingMemory
 
 /--
@@ -124,9 +142,9 @@ structure ThreadState where
   Is must be ordered with oldest promises at the bottom of the list
   -/
   promises : List Timestamp
-  regs : Std.ExtDHashMap Arch.register (fun reg => (Arch.register_type reg) × View)
+  regs : Std.DHashMap Arch.register (fun reg => (Arch.register_type reg) × View)
   /-- The coherence views. -/
-  coh : Std.ExtHashMap Loc View
+  coh : Std.HashMap Loc View
 
   /-- The maximum output view of a read -/
   vrd : View
@@ -146,7 +164,7 @@ structure ThreadState where
   vrel : View
 
   /-- Forwarding bank. Stores records about the last write to each location by this thread. -/
-  fwdb : Std.ExtHashMap Loc FwdItem
+  fwdb : Std.HashMap Loc FwdItem
 
   /--
   Exclusives bank. If there was a recent load exclusive but the corresponding
@@ -371,6 +389,12 @@ structure ModelState (nThreads : Nat) where
   initmem : InitialMem
   mem : PromisingMemory
 
+def ModelState.toArchState (mState : ModelState nThreads) : ArchState nThreads :=
+  { memory := mState.mem.toMemoryMap mState.initmem
+  , addressSpace := ()
+  , regs := mState.threadStates.map (fun tstate => tstate.regMap)
+  }
+
 /-- Intra-Instruction State for propagating views inside an instruction. -/
 structure IIS where
   strict : View
@@ -445,6 +469,7 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
       let aligned_addr := BitVec.and addr (BitVec.ofNat 64 0b111).not
       /- Is the 4 byte read in the upper/lower part of the aligned 8 bytes. -/
       let bit2 := addr.getLsb 2
+      -- CR clang: this match can never fail. Refactor this.
       let loc ← match Loc.fromAddr aligned_addr with
       | .none => Except.error "Address not supported"
       | .some loc => pure loc
@@ -510,10 +535,33 @@ def threadTerminated
     (tid : Fin n) : Bool :=
   termination tid pstate.threadStates[tid].regMap
 
+def all_threads_terminated
+    (termination : TerminationCondition n)
+    (pstate : ModelState n) : Prop :=
+  ∀ tid : Fin n, threadTerminated termination pstate tid
+
 def allThreadsTerminated
     (termination : TerminationCondition n)
     (pstate : ModelState n) : Bool :=
   (List.finRange n).all (threadTerminated termination pstate)
+
+instance : Decidable (all_threads_terminated termination pstate) :=
+  if h : allThreadsTerminated termination pstate then
+    isTrue (by
+      simp [allThreadsTerminated] at *
+      exact h
+    )
+  else
+    isFalse (by
+      simp [allThreadsTerminated] at *
+      simp [all_threads_terminated]
+      exact h
+    )
+
+theorem terminated_model_state_to_arch_state
+    : all_threads_terminated termination pstate
+    → ArchState.has_terminated termination pstate.toArchState := by
+  simp [all_threads_terminated, ArchState.has_terminated, ModelState.toArchState, threadTerminated]
 
 def noThreadPromises (pstate : ModelState n) (tid : Fin n) : Bool :=
   pstate.threadStates[tid].promises.isEmpty
@@ -647,22 +695,27 @@ def runStep (fuel : Nat) (isem : SailM Unit)
     | 0 => cpromiseTid fuel tid isem termination
     | 1 => runThreadInstruction isem tid
 
+structure TerminatedModelState (nThreads : Nat)
+    (termination : TerminationCondition nThreads) where
+  state : ModelState nThreads
+  proof : all_threads_terminated termination state
+
 /- CR clang: archsem-rocq return a `final` (ModelState + proof it satisfied termination condition). -/
 /--
 Computationally evaluate all the possible allowed final states according to the
 promising model.
 -/
-def run (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition n)
-    : NEStateM (ModelState n) String (ModelState n) := do
+def runNaive (fuel : Nat) (isem : SailM Unit) (n : Nat) (termination : TerminationCondition n)
+    : NEStateM (ModelState n) String (TerminatedModelState n termination) := do
   let pstate ← get
-  if allThreadsTerminated termination pstate then
-    pure pstate
+  if h : all_threads_terminated termination pstate then
+    pure { state := pstate, proof := h }
   else
     match fuel with
     | 0 => NEStateM.error "Could not finish running within the size of the fuel"
     | fuel' + 1 =>
       runStep (fuel' + 1) isem termination
-      run fuel' isem termination
+      runNaive fuel' isem n termination
 
 /- CR clang: strange that NEStateM has two copies of the ModelState in the output. -/
 /--
@@ -671,7 +724,8 @@ promising model with promise-first optimization. The size of fuel should be at
 least `(# of promises) + max(# of instructions) + 1`.
 -/
 def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
-    (termination : TerminationCondition n) : NEStateM (ModelState n) String (ModelState n) := do
+    (n : Nat) (termination : TerminationCondition n)
+    : NEStateM (ModelState n) String (TerminatedModelState n termination) := do
   if fuel == 0 then NEStateM.error "Promise first: out of fuel in main loop" else
   let pstate ← get
   /- Find next possible promises or terminating states for each thread. -/
@@ -683,7 +737,7 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     let tid ← NEStateM.chooseFin n
     let nextEv ← NEStateM.choose executionResults[tid].promises
     modify (fun pstate => promiseTid tid nextEv pstate)
-    runPromiseFirst (fuel - 1) isem termination
+    runPromiseFirst (fuel - 1) isem n termination
   | 1 =>
     /-
     If there is some choice of final states from each thread that form a valid terminated model state
@@ -692,8 +746,10 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     let tstates ← executionResults.mapM (fun r => NEStateM.choose r.final_states)
     let pstate : ModelState n := { threadStates := tstates, initmem := pstate.initmem, mem := pstate.mem }
     if !noPromises pstate then NEStateM.discard else
-    if !allThreadsTerminated termination pstate then NEStateM.discard else
-    pure pstate
+    if h : all_threads_terminated termination pstate then
+      pure { state := pstate, proof := h }
+    else
+      NEStateM.discard
   | 2 =>
     /- Throw all errors in the execution results. -/
     let errs := executionResults.toList.map EnumerationResult.errors |>.flatten
@@ -705,6 +761,31 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     else
       NEStateM.discard
 
+def promisingRuntimeToModel
+    (run : (n : Nat) → (termination : TerminationCondition n)
+         → NEStateM (ModelState n) String (TerminatedModelState n termination))
+    : ComputationalTerminatingModel Unit :=
+  fun {nThreads : Nat} (termCond : TerminationCondition nThreads)
+      (archState : ArchState nThreads) =>
+    let initmem := InitialMem.ofMemoryMap archState.memory
+    let threadStates := archState.regs.map ThreadState.init
+    let mState : ModelState nThreads := { initmem, threadStates, mem := [] }
+    let output := run nThreads termCond mState
+    let errors : ListSet (ModelResult nThreads Unit termCond) :=
+      ListSet.ofList (output.errors.map (fun (_,msg) => ModelResult.error msg))
+    let results : ListSet (ModelResult nThreads Unit termCond) :=
+      ListSet.ofList (output.results.map (fun (_,final) =>
+        let archState := final.state.toArchState
+        let proof := terminated_model_state_to_arch_state final.proof
+        ModelResult.finalState archState proof))
+    ListSet.union errors results
+
+-- CR clang: comment these models to explain.
+def createNaiveModel (isem : SailM Unit) (fuel : Nat) : ComputationalTerminatingModel Unit :=
+  promisingRuntimeToModel (runNaive fuel isem)
+def createPromiseFirstModel (isem : SailM Unit) (fuel : Nat) : ComputationalTerminatingModel Unit :=
+  promisingRuntimeToModel (runPromiseFirst fuel isem)
+
 end ModelEvaluation
 
-end ArchSem.Promising
+end ArchSemTinyArm.Promising
