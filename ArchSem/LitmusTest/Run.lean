@@ -7,17 +7,26 @@ open Sail.ArchSem
 
 namespace ArchSem.LitmusTest.Run
 
+-- TODO: print more concisely.
+def outcomesToString [ArchExtra] (states : List (ArchState nThreads)) : String :=
+  let regMapToString (regs : RegisterMap) : String :=
+    "[" ++ ", ".intercalate (regs.toList.map (fun pair => s!"{reprStr pair.fst}={reprStr pair.snd}")) ++ "]"
+  let memMapToString (mem : MemoryMap) : String :=
+    "[" ++ ", ".intercalate (mem.toList.map (fun pair => s!"{pair.fst.toHex}={pair.snd.toHex}")) ++ "]"
+  let archStateToString (state : ArchState nThreads) : String :=
+    let regsStr := "[" ++ ", ".intercalate (state.regs.toList.map regMapToString) ++ "]"
+    let memStr := memMapToString state.memory
+    s!"regs={regsStr}, mem={memStr}"
+  "[\n" ++ "\n".intercalate (states.map archStateToString) ++ "]\n"
+
 structure ArchTestRepr [ArchExtra] (nThreads : Nat) where
   initialState : ArchState nThreads
   terminationCondition : TerminationCondition nThreads
-  -- CR clang: this is wrong. Here I'm checking that all outcomes satisfy
-  -- some condition. But I really want to check that all final conditions are
-  -- satisfied. TODO: Discuss semantics of Observable and Unobservable with Thibaut.
-  checkFinalConditions : ArchState nThreads → Except String Unit
+  checkFinalConditions : ListSet (ArchState nThreads) → Except String Unit
 
 def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
     : Except String (ArchTestRepr test.registers.length) := do
-  -- Helper function.
+  -- Helper function for register map conversion.
   let tableToRegMap (l : List (String × RegValGen)) : Except String RegisterMap :=
     l.foldlM (fun regs (s, rv) => do
       let reg : Arch.register ← ArchExtra.register_of_string s
@@ -47,57 +56,77 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
 
   -- Convert final condition check.
   let checkFinalMemoryCondition (archState : ArchState nThreads) (cond : FinalMemoryCondition)
-      : Except String Unit :=
+      : Except String Bool :=
     let addr : Address := BitVec.ofNat Arch.addr_size cond.addr
     let word : BitVec (8 * cond.size) := archState.memory.read cond.size addr
     match cond.condition with
-    | .memEq n => if word.toNat == n then Except.ok () else
-      Except.error s!"Expecting '{n}' at '{addr.toHex}', found {word.toNat}"
-    | .memNe n => if word.toNat != n then Except.ok () else
-      Except.error s!"Final state has '{n}' at '{addr.toHex}'"
+    | .memEq n => pure (word.toNat == n)
+    | .memNe n => pure (word.toNat != n)
   let checkFinalThreadRegisterCondition (archState : ArchState nThreads) (tid : Tid)
-      (pair : String × FinalRegisterCondition) := do
-    let (reg,cond) := pair
+      (pair : String × FinalRegisterCondition) : Except String Bool := do
+    let (regStr,cond) := pair
     if h : tid >= nThreads then Except.error s!"Tid out of range {tid}" else
     let tid : Fin nThreads := ⟨tid, by simp at h ; exact h⟩
-    let reg : Arch.register ← ArchExtra.register_of_string reg
+    let reg : Arch.register ← ArchExtra.register_of_string regStr
     let val : Arch.register_type reg ← match cond with
       | .regEq rv | .regNe rv => ArchExtra.register_type_of_gen reg rv
     let trueVal : Arch.register_type reg ← match archState.regs[tid].get? reg with
       | .some val => pure val
-      | .none => Except.error s!"Register {reprStr reg} not set in final thread {tid}"
+      | .none =>
+        Except.error s!"Register {reprStr reg} not set in final thread {tid}. Try including in initial state."
     match cond with
-      | .regEq _ => if val == trueVal then pure () else
-        Except.error s!"Expecting '{reprStr val}' in {tid}:{reprStr reg}, found '{reprStr trueVal}'"
-      | .regNe _ => if val != trueVal then pure () else
-        Except.error s!"Final state has '{reprStr val}' in {tid}:{reprStr reg}"
+      | .regEq _ => pure (val == trueVal)
+      | .regNe _ => pure (val != trueVal)
   let checkFinalThreadCondition (archState : ArchState nThreads) (cond : FinalThreadCondition)
-      : Except String Unit :=
-    cond.regConditions.forM (checkFinalThreadRegisterCondition archState cond.tid)
-  let checkFinalCondition (archState : ArchState nThreads) : FinalCondition → Except String Unit
-    | .Observable threadConditions memoryConditions
-    | .Unobservable threadConditions memoryConditions => do
-      threadConditions.forM (checkFinalThreadCondition archState)
-      memoryConditions.forM (checkFinalMemoryCondition archState)
-  let checkFinalConditions (archState : ArchState nThreads)
-      : Except String Unit :=
-    test.finalConditions.forM (checkFinalCondition archState)
+      : Except String Bool :=
+    cond.regConditions.allM (checkFinalThreadRegisterCondition archState cond.tid)
+  let checkFinalThreadConditions
+      (archState : ArchState nThreads)
+      (threadConditions : List FinalThreadCondition)
+      : Except String Bool :=
+    threadConditions.allM (checkFinalThreadCondition archState)
+  let checkFinalMemoryConditions
+      (archState : ArchState nThreads)
+      (memoryConditions : List FinalMemoryCondition)
+      : Except String Bool := do
+    memoryConditions.allM (checkFinalMemoryCondition archState)
+  let checkFinalConditions (finalStates : ListSet (ArchState nThreads))
+      : Except String Unit := do
+    let (observables, unobservables)
+        : (List (List FinalThreadCondition × List FinalMemoryCondition))
+        × (List (List FinalThreadCondition × List FinalMemoryCondition))
+      := test.finalConditions.foldl (fun (obs, unobs) cond => match cond with
+        | .observable threadConds memConds => ((threadConds, memConds) :: obs, unobs)
+        | .unobservable threadConds memConds => (obs, (threadConds, memConds) :: unobs)
+        ) ([], [])
+    let checkCondExists (cond : (List FinalThreadCondition × List FinalMemoryCondition))
+        : Except String Bool :=
+      finalStates.toList.anyM (fun archState => do
+        (← checkFinalThreadConditions archState cond.fst) &&
+        (← checkFinalMemoryConditions archState cond.snd) |> pure)
+    let debugInfo := s!"final states:\n{outcomesToString finalStates}"
+    if !(← observables.allM checkCondExists) then
+      Except.error s!"Not all observable conditions observed.\n{debugInfo}"
+    if (← unobservables.anyM checkCondExists) then
+      Except.error "An unobservable condition was observed.\n{debugInfo}"
+    pure ()
 
   -- Return ArchTestRepr.
   pure { initialState, terminationCondition, checkFinalConditions}
 
 
--- CR clang: TODO if a test fails we still want all the outputs.
 def runLitmusTest [ArchExtra] [DecidableEq Flag] [Repr Flag]
     (litmusTest : TestRepr) (model : ComputationalTerminatingModel Flag)
     : Except String Unit := do
   let nThreads : Nat := litmusTest.registers.length
   let archTest : ArchTestRepr nThreads ← ArchTestRepr.ofTestRepr litmusTest
   let output := model archTest.terminationCondition archTest.initialState
-  output.forM (fun
-    | .finalState archState _ => archTest.checkFinalConditions archState
+  let archStates ← output.toList.mapM (fun
+    | .finalState archState _ => pure archState
     | .flagged f => Except.error s!"Flagged final state {reprStr f}"
     | .error msg => Except.error msg
-  )
+    )
+  let archStates := ListSet.ofList archStates
+  archTest.checkFinalConditions archStates
 
 end ArchSem.LitmusTest.Run

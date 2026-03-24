@@ -37,7 +37,7 @@ partial def tomlToRegValGen : Lake.Toml.Value → Except String RegValGen
     let a ← l.mapM (tomlToRegValGen)
     pure (.array a.toList)
   | .table _ t => do
-    let t ← t.items.mapM (fun (k,v) => do pure (k.toString, (← tomlToRegValGen v)))
+    let t ← t.items.mapM (fun (k,v) => do pure (k.toString false, (← tomlToRegValGen v)))
     pure (.struct t.toList)
   | _ => .error "Failed to parse register value"
 
@@ -47,7 +47,7 @@ partial def tomlToRegValGen : Lake.Toml.Value → Except String RegValGen
  -/
 def tomlToThreadRegisters (regs : Lake.Toml.Table)
     : Except String (List (String × RegValGen)) := do
-  let a ← regs.items.mapM (fun (k,v) => do pure (k.toString, (← tomlToRegValGen v)))
+  let a ← regs.items.mapM (fun (k,v) => do pure (k.toString false, (← tomlToRegValGen v)))
   pure a.toList
 
 /--
@@ -105,17 +105,21 @@ def tomlToMemory (memory : Array Lake.Toml.Value) : Except String (List MemoryBl
 def tomlToFinalRegisterConditions (table : Lake.Toml.Table)
     : Except String (List (String × FinalRegisterCondition)) :=
   table.items.toList.mapM (fun (reg, cond) => do
-    let cond ← match cond with
-      | .table _ cond => pure cond
+    let reg := reg.toString false
+    match cond with
+      | .integer _ n =>
+        let val := RegValGen.number n
+        pure (reg, FinalRegisterCondition.regEq val)
+      | .table _ cond =>
+        let op ← tomlFindStringElse cond `op "Failed to parse register condition op"
+        let val ← match cond.find? `val with
+        | .some v => tomlToRegValGen v
+        | .none => Except.error "Failed to find register condition value"
+        match op with
+        | "eq" => pure (reg, FinalRegisterCondition.regEq val)
+        | "ne" => pure (reg, FinalRegisterCondition.regNe val)
+        | _ => Except.error s!"Invalid final register condition op '{op}'"
       | _ => Except.error "Failed to parse final register condition"
-    let op ← tomlFindStringElse cond `op "Failed to parse register condition op"
-    let val ← match cond.find? `val with
-    | .some v => tomlToRegValGen v
-    | .none => Except.error "Failed to find register condition value"
-    match op with
-    | "eq" => pure (reg.toString, FinalRegisterCondition.regEq val)
-    | "ne" => pure (reg.toString, FinalRegisterCondition.regNe val)
-    | _ => Except.error s!"Invalid final register condition op '{op}'"
   )
 
 def tomlToFinalThreadConditions (table : Lake.Toml.Table)
@@ -124,14 +128,15 @@ def tomlToFinalThreadConditions (table : Lake.Toml.Table)
     | some (.table _ t) => pure t
     | none => pure table
     | _ => Except.error "Failed to parse register final condition"
-  threadsTable.items.toList.filterMapM (fun (tid, regs) => do
-    let tid ← match tid.toString.toNat? with
+  threadsTable.items.toList.mapM (fun (tid, regs) => do
+    let tid := tid.toString false
+    let tid ← match tid.toNat? with
       | some tid => pure tid
-      | none => return none
+      | none => Except.error s!"Expected tid at '{tid}'"
     let regConditions ← match regs with
       | .table _ regsTable => tomlToFinalRegisterConditions regsTable
       | _ => Except.error "Failed to parse final register conditions"
-    pure (some {tid , regConditions})
+    pure {tid, regConditions}
     )
 
 def tomlToFinalMemoryWordCondition (toml : Lake.Toml.Value)
@@ -154,7 +159,7 @@ def tomlToFinalMemoryConditions (table : Lake.Toml.Table) (mem : List MemoryBloc
   match table.find? `mem with
   | .some (.table _ memTable) =>
     memTable.items.toList.mapM (fun (sym,v) => do
-      let sym := sym.toString
+      let sym := sym.toString false
       let condition ← tomlToFinalMemoryWordCondition v
       let block ← match List.find? (fun b => b.sym == some sym) mem with
         | .some b => pure b
@@ -170,11 +175,11 @@ def tomlToFinalCondition (condition : Lake.Toml.Table) (mem : List MemoryBlock)
   | (some (.table _ table), none) =>
     let threadConditions ← tomlToFinalThreadConditions table
     let memoryConditions ← tomlToFinalMemoryConditions table mem
-    pure (.Observable threadConditions memoryConditions)
+    pure (.observable threadConditions memoryConditions)
   | (none, some (.table _ table)) =>
     let threadConditions ← tomlToFinalThreadConditions table
     let memoryConditions ← tomlToFinalMemoryConditions table mem
-    pure (.Observable threadConditions memoryConditions)
+    pure (.observable threadConditions memoryConditions)
   | (some _, some _) => Except.error "Final condition can't have both observable and unobservable"
   | (none, none) => Except.error "Failed to parse empty final condition"
   | _ => Except.error "Failed to parse final condition"

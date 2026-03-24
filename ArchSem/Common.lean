@@ -17,6 +17,7 @@ inductive RegValGen where
   | string (s : String)
   | array (l : List RegValGen)
   | struct (l : List (String × RegValGen))
+deriving Repr
 
 /--
 ArchExtra is an extension of the Arch typeclass implemented by the lean-sail backend.
@@ -93,7 +94,11 @@ def toList (s : ListSet α) : List α := s
 def ofList (l : List α) : ListSet α :=
   l.foldl insert ListSet.empty
 
-def map (f : α → β) (s : ListSet α) := ListSet.ofList (s.toList.map f)
+def map (f : α → β) (s : ListSet α) : ListSet β :=
+  ListSet.ofList (s.toList.map f)
+
+def filterMap (f : α → Option β) (s : ListSet α) : ListSet β :=
+  ListSet.ofList (s.toList.filterMap f)
 
 def union (s₁ s₂ : ListSet α) : ListSet α :=
   s₂.foldl ListSet.insert s₁

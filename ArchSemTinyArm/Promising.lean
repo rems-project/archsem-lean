@@ -1,6 +1,6 @@
 import ArchSem.ExecutionMonad
 import ArchSem.Common
-import ArchSemTinyArm.Basic
+import ArchSemTinyArm.Defs
 import ArchSem.TerminatingModel
 
 /-!
@@ -33,7 +33,7 @@ abbrev Loc := BitVec 61
 
 /-- Recover a location from an ARM physical address. -/
 def Loc.fromAddr (addr : BitVec 64) : Option Loc :=
-  if BitVec.extractLsb 0 3 addr == BitVec.zero 3 then
+  if BitVec.extractLsb 2 0 addr == BitVec.zero 3 then
     .some (BitVec.extractLsb 63 3 addr)
   else .none
 def Loc.toAddr (loc : Loc) : BitVec 64 :=
@@ -471,7 +471,7 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
       let bit2 := addr.getLsb 2
       -- CR clang: this match can never fail. Refactor this.
       let loc ← match Loc.fromAddr aligned_addr with
-      | .none => Except.error "Address not supported"
+      | .none => Except.error s!"Address not supported {aligned_addr}"
       | .some loc => pure loc
       let word ← match readInitial loc initmem (← get).mem with
       | .none => Except.error s!"Modified instruction memory at {loc} {aligned_addr}"
@@ -480,7 +480,7 @@ def runOutcome (tid : Nat) (initmem : InitialMem) (out : InstructionEffect)
       return (.Ok (opcode, BitVec.zero 0), none)
     | 8 =>
       let loc ← match Loc.fromAddr memReq.address with
-        | .none => Except.error "Address not supported"
+        | .none => Except.error s!"Address not supported {memReq.address}"
         | .some loc => pure loc
       if Arch.mem_acc_is_ifetch memReq.accessKind then Except.error "i-fetch must be 4 byte" else
       if !Arch.mem_acc_is_explicit memReq.accessKind then Except.error "read must be explicit" else

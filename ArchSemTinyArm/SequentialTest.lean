@@ -1,5 +1,5 @@
 import ArchSemTinyArm.Sequential
-import ArchSemTinyArm.Basic
+import ArchSemTinyArm.Defs
 
 open Sail.ArchSem
 open ArchSemTinyArm.Sequential

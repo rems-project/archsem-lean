@@ -3,7 +3,7 @@ import Std.Data.ExtHashMap
 import Sail
 import ArchSem.Common
 import ArchSem.TerminatingModel
-import ArchSemTinyArm.Basic
+import ArchSemTinyArm.Defs
 
 open Sail
 open Sail.ArchSem

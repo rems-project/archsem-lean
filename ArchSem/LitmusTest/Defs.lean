@@ -10,6 +10,7 @@ inductive MemoryKind where
   | code
   | data
   | pageTable
+deriving Repr
 
 def MemoryKind.fromString? : String → Option MemoryKind
   | "code" => some .code
@@ -27,6 +28,7 @@ structure MemoryBlock where
   data : List (BitVec 8)
   sym : Option String
   kind : MemoryKind
+deriving Repr
 
 def MemoryBlock.insertIntoMemoryMap (mem : MemoryMap) (block : MemoryBlock)
     : MemoryMap :=
@@ -36,29 +38,33 @@ def MemoryBlock.insertIntoMemoryMap (mem : MemoryMap) (block : MemoryBlock)
 inductive FinalRegisterCondition where
   | regEq : RegValGen → FinalRegisterCondition
   | regNe : RegValGen → FinalRegisterCondition
+deriving Repr
 
 structure FinalThreadCondition where
   tid : Tid
   regConditions : List (String × FinalRegisterCondition)
+deriving Repr
 
 inductive FinalMemoryWordCondition
   | memEq : Nat → FinalMemoryWordCondition
   | memNe : Nat → FinalMemoryWordCondition
+deriving Repr
 
 structure FinalMemoryCondition where
   sym : String
   addr : Nat
   size : Nat
   condition : FinalMemoryWordCondition
+deriving Repr
 
--- CR clang: difference between observable and unobservable?
 /--
  - A condition the system should be in when it terminates.
  - In the toml format this is an element of [[outcome]].
  -/
 inductive FinalCondition where
-  | Observable : List FinalThreadCondition → List FinalMemoryCondition → FinalCondition
-  | Unobservable : List FinalThreadCondition → List FinalMemoryCondition → FinalCondition
+  | observable : List FinalThreadCondition → List FinalMemoryCondition → FinalCondition
+  | unobservable : List FinalThreadCondition → List FinalMemoryCondition → FinalCondition
+deriving Repr
 
 structure TestRepr where
   arch : String
@@ -67,5 +73,6 @@ structure TestRepr where
   memory : List MemoryBlock
   termCond : List (List (String × RegValGen))
   finalConditions : List FinalCondition
+deriving Repr
 
 end ArchSem.LitmusTest

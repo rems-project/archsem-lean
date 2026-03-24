@@ -1,5 +1,5 @@
 import ArchSemTinyArm.Promising
-import ArchSemTinyArm.Basic
+import ArchSemTinyArm.Defs
 
 open Sail.ArchSem
 open ArchSem.TerminatingModel
