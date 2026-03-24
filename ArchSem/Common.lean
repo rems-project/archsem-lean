@@ -4,58 +4,35 @@ import Sail
 
 open Sail.ArchSem
 
--- CR clang: Do I want an Int here or Nat?
--- CR clang: maybe a better name or at least comment?
+/--
+Register value generator.
+An architecture can define its registers to be of any type
+but to have a portable test format we want a general way of defining
+register values.
+A RegValGen type can be parsed from a toml file and converted into
+an architecture register type using a function from ArchExtra.
+-/
 inductive RegValGen where
   | number (n : Int)
   | string (s : String)
   | array (l : List RegValGen)
   | struct (l : List (String × RegValGen))
 
-/-
- - CR clang for leo: we should modify the Arch interface and sail-lean backend to
- - have this typeclass instance in Arch.
- - It would be nice to have toString instances for registers and register types.
- -/
-/-
-instance (reg : Register) : BEq (Arch.register_type reg) := by
-  have eq : Arch.register_type = RegisterType := rfl
-  rw [eq]
-  rw [RegisterType.eq_def]
-  split <;> infer_instance
-instance (reg : Register) : Inhabited (Arch.register_type reg) := by
-  have eq : Arch.register_type = RegisterType := rfl
-  rw [eq]
-  rw [RegisterType.eq_def]
-  split <;> infer_instance
-instance (reg : Register) : Repr (Arch.register_type reg) := by
-  have eq : Arch.register_type = RegisterType := rfl
-  rw [eq]
-  rw [RegisterType.eq_def]
-  split <;> infer_instance
+/--
+ArchExtra is an extension of the Arch typeclass implemented by the lean-sail backend.
+We implement the extra fields and functions for each Architecture we wish to use in ArchSem.
+This allows us to add new features without changing the sail backend.
 -/
-
-
-/-
-CR clang for leo: I'm amazed lean does not have this in core libs?!
-I need it for guarding test results.
--/
-instance [BEq α] [BEq β] : BEq (Except α β) where
-  beq
-    | .error e1, .error e2 => e1 == e2
-    | .ok v1, .ok v2 => v1 == v2
-    | _, _ => false
-
 class ArchExtra [Arch] where
-  /- Inhabited instances. -/
+  /- There must be a default address space to be used in litmus tests. -/
   addr_space_inhabited : Inhabited Arch.addr_space
-  /- Comparison instances. -/
+  /- Comparisons are required for checking final states in litmus tests. -/
   register_type_deq (reg : Arch.register) : DecidableEq (Arch.register_type reg)
   addr_space_deq : DecidableEq Arch.addr_space
-  /- Conversions. -/
+  /- Registers are named by string in the litmus test format. -/
   register_of_string : String → Except String Arch.register
   register_type_of_gen (reg : Arch.register) : RegValGen → Except String (Arch.register_type reg)
-  /- Repr instances. -/
+  /- Architecture types get Repr instances to make debugging easier. -/
   addr_space_repr : Repr Arch.addr_space
   register_repr : Repr Arch.register
   register_type_repr (reg : Arch.register) : Repr (Arch.register_type reg)
@@ -69,6 +46,7 @@ class ArchExtra [Arch] where
   exn_repr : Repr Arch.exn
   sys_reg_id_repr : Repr Arch.sys_reg_id
 
+/- Help lean4's type inference find the instances in ArchExtra. -/
 instance [ArchExtra] : Inhabited Arch.addr_space  := ArchExtra.addr_space_inhabited
 instance [ArchExtra] (reg : Arch.register) : DecidableEq (Arch.register_type reg) := ArchExtra.register_type_deq reg
 instance [ArchExtra] : DecidableEq Arch.addr_space  := ArchExtra.addr_space_deq
@@ -86,29 +64,44 @@ instance [ArchExtra] : Repr Arch.exn         := ArchExtra.exn_repr
 instance [ArchExtra] : Repr Arch.sys_reg_id  := ArchExtra.sys_reg_id_repr
 
 
-/-
- - If we are in a context where the number of threads is known then we prefer
- - to use `Fin nThreads`. But to avoid having to pass nThreads around everywhere,
- - sometimes we just want to use a Nat. And its nice to give this Nat a descriptive
- - name like `Tid`.
- -/
+/--
+Thread ID.
+If we are in a context where the number of threads is known then we prefer
+to use `Fin nThreads`. But to avoid having to pass nThreads around everywhere,
+sometimes we just want to use a Nat. And its nice to give this Nat a descriptive
+name like `Tid`.
+-/
 abbrev Tid := Nat
 
+
+/-- Finite set implemented with unsorted linked list having no duplicates. -/
 def ListSet (α : Type) [BEq α] := List α
+
 namespace ListSet
+
 variable [BEq α] [BEq β]
+
 def empty : ListSet α := []
+
 def contains (s : ListSet α) (a : α) : Bool := s.any (· == a)
+
 def insert (s : ListSet α) (a : α) : ListSet α :=
   if s.contains a then s else a :: s
+
 def toList (s : ListSet α) : List α := s
+
 def ofList (l : List α) : ListSet α :=
   l.foldl insert ListSet.empty
+
 def map (f : α → β) (s : ListSet α) := ListSet.ofList (s.toList.map f)
+
 def union (s₁ s₂ : ListSet α) : ListSet α :=
   s₂.foldl ListSet.insert s₁
+
 instance : BEq (ListSet α) :=
   inferInstanceAs (BEq (List α))
+
 instance [DecidableEq α] : DecidableEq (ListSet α) :=
   inferInstanceAs (DecidableEq (List α))
+
 end ListSet

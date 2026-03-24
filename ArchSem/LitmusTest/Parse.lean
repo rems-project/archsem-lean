@@ -3,7 +3,7 @@ import Sail
 
 import Lake.Toml
 import ArchSem.Common
-import ArchSem.LitmusTest.Basic
+import ArchSem.LitmusTest.Defs
 
 open ArchSem.LitmusTest
 

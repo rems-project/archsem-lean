@@ -23,5 +23,7 @@ def runTestFromFile [DecidableEq Flag] [Repr Flag] (fname : System.FilePath)
   | .error msg => throw (IO.userError s!"TEST FAILED [{fname.toString}]: {msg}")
 
 #eval runTestFromFile "MP.archsem.toml" naiveModel
+-- CR clang: this test should fail.
+#eval runTestFromFile "MP_fails.archsem.toml" naiveModel
 
 end ArchSemTinyArm.Test

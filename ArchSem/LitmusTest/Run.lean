@@ -1,4 +1,4 @@
-import ArchSem.LitmusTest.Basic
+import ArchSem.LitmusTest.Defs
 import ArchSem.TerminatingModel
 import Sail.ArchSem
 
@@ -10,6 +10,9 @@ namespace ArchSem.LitmusTest.Run
 structure ArchTestRepr [ArchExtra] (nThreads : Nat) where
   initialState : ArchState nThreads
   terminationCondition : TerminationCondition nThreads
+  -- CR clang: this is wrong. Here I'm checking that all outcomes satisfy
+  -- some condition. But I really want to check that all final conditions are
+  -- satisfied. TODO: Discuss semantics of Observable and Unobservable with Thibaut.
   checkFinalConditions : ArchState nThreads → Except String Unit
 
 def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
