@@ -1,8 +1,8 @@
 import Std.Data.ExtDHashMap
 import Std.Data.ExtHashMap
 import Sail
-import ArchsemLean.Common
-import ArchsemLean.TerminatingModel
+import ArchSem.Common
+import ArchSem.TerminatingModel
 import ArchSemTinyArm.Basic
 
 open Sail

@@ -1,6 +1,6 @@
 name = "archsem-lean"
 version = "0.1.0"
-defaultTargets = ["ArchsemLean", "ArchSemTinyArm"]
+defaultTargets = ["ArchSem", "ArchSemTinyArm"]
 
 [[require]]
 name = "sail_tiny_arm"
@@ -9,9 +9,8 @@ rev = "archsem-lean"
 subDir = "lean-snapshot/out"
 
 [[lean_lib]]
-# CR clang for thibaut: Am I supposed to have uppercase 'S' in Archsem?
-name = "ArchsemLean"
-globs = ["ArchsemLean.**"]
+name = "ArchSem"
+globs = ["ArchSem.**"]
 
 [[lean_lib]]
 name = "ArchSemTinyArm"

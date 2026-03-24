@@ -1,7 +1,7 @@
-import ArchsemLean.ExecutionMonad
-import ArchsemLean.Common
+import ArchSem.ExecutionMonad
+import ArchSem.Common
 import ArchSemTinyArm.Basic
-import ArchsemLean.TerminatingModel
+import ArchSem.TerminatingModel
 
 /-!
 This module contains a handwritten lean port of ArchSem rocq's

@@ -1,4 +1,4 @@
-import ArchsemLean.TerminatingModel
+import ArchSem.TerminatingModel
 import Sail.ArchSem
 
 open ArchSem.TerminatingModel

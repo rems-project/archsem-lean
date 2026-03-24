@@ -1,7 +1,7 @@
 import Sail
 import Out.Defs
 import Out.TinyArm
-import ArchsemLean.Common
+import ArchSem.Common
 
 open Sail.ArchSem
 

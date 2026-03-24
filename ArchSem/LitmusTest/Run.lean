@@ -1,5 +1,5 @@
-import ArchsemLean.LitmusTest.Basic
-import ArchsemLean.TerminatingModel
+import ArchSem.LitmusTest.Basic
+import ArchSem.TerminatingModel
 import Sail.ArchSem
 
 open ArchSem.TerminatingModel

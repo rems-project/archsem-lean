@@ -2,8 +2,8 @@ import Lake.Toml.ParserUtil
 import Sail
 
 import Lake.Toml
-import ArchsemLean.Common
-import ArchsemLean.LitmusTest.Basic
+import ArchSem.Common
+import ArchSem.LitmusTest.Basic
 
 open ArchSem.LitmusTest
 

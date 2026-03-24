@@ -1,7 +1,7 @@
-import ArchsemLean.LitmusTest.Parse
-import ArchsemLean.LitmusTest.Run
+import ArchSem.LitmusTest.Parse
+import ArchSem.LitmusTest.Run
 import ArchSemTinyArm.Promising
-import ArchsemLean.TerminatingModel
+import ArchSem.TerminatingModel
 
 open ArchSem.TerminatingModel
 open ArchSem.LitmusTest

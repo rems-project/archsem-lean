@@ -1,6 +1,6 @@
 import Std.Data.ExtHashMap
 import Std.Data.HashSet
-import ArchsemLean.Common
+import ArchSem.Common
 import Sail
 
 open Sail.ArchSem
