@@ -115,12 +115,12 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
   pure { initialState, terminationCondition, checkFinalConditions}
 
 
-def runLitmusTest [ArchExtra] [DecidableEq Flag] [Repr Flag]
-    (litmusTest : TestRepr) (model : ComputationalTerminatingModel Flag)
+def runLitmusTest [ArchExtra]
+    (model : ComputationalTerminatingModel) (litmusTest : TestRepr)
     : Except String Unit := do
   let nThreads : Nat := litmusTest.registers.length
   let archTest : ArchTestRepr nThreads ← ArchTestRepr.ofTestRepr litmusTest
-  let output := model archTest.terminationCondition archTest.initialState
+  let output := model nThreads archTest.terminationCondition archTest.initialState
   let archStates ← output.toList.mapM (fun
     | .finalState archState _ => pure archState
     | .flagged f => Except.error s!"Flagged final state {reprStr f}"

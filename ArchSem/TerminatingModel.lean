@@ -60,8 +60,9 @@ instance [BEq Flag] : BEq (ModelResult n Flag termCond) where
     | .error m₁, .error m₂ => m₁ == m₂
     | _, _ => false
 
-def ComputationalTerminatingModel (Flag : Type) [DecidableEq Flag] :=
-  {nThreads : Nat} → (termCond : TerminationCondition nThreads) →
-  ArchState nThreads → ListSet (ModelResult nThreads Flag termCond)
+-- CR clang for thibaut: archsem passed Flag to this type. Lets discuss.
+def ComputationalTerminatingModel :=
+  (nThreads : Nat) → (termCond : TerminationCondition nThreads) →
+  ArchState nThreads → ListSet (ModelResult nThreads Unit termCond)
 
 end ArchSem.TerminatingModel

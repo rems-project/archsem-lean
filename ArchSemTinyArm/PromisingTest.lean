@@ -56,12 +56,12 @@ def finalStateExtractor : ArchState nThreads → List (Option String)
   := extractRegs [(0, .R0)]
 def expectedResults := ListSet.ofList [[some "0x0000000000000110#64"]]
 
-def naiveModel : ComputationalTerminatingModel Unit := createNaiveModel sailTinyArmIsem fuel
-def promiseFirstModel : ComputationalTerminatingModel Unit := createPromiseFirstModel sailTinyArmIsem fuel
+def naiveModel : ComputationalTerminatingModel := createNaiveModel sailTinyArmIsem fuel
+def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel sailTinyArmIsem fuel
 
-def naiveOutput := naiveModel terminationCondition initialState
+def naiveOutput := naiveModel nThreads terminationCondition initialState
 def naiveResults := prepareTestResults finalStateExtractor naiveOutput
-def promiseFirstOutput := promiseFirstModel terminationCondition initialState
+def promiseFirstOutput := promiseFirstModel nThreads terminationCondition initialState
 def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOutput
 
 #guard naiveResults == promiseFirstResults
@@ -136,12 +136,12 @@ def expectedResults := ListSet.ofList [
   [some "0x0000000000000000#64", some "0x000000000000002a#64"],
   [some "0x0000000000000000#64", some "0x0000000000000000#64"]]
 
-def naiveModel : ComputationalTerminatingModel Unit := createNaiveModel sailTinyArmIsem fuel
-def promiseFirstModel : ComputationalTerminatingModel Unit := createPromiseFirstModel sailTinyArmIsem fuel
+def naiveModel : ComputationalTerminatingModel := createNaiveModel sailTinyArmIsem fuel
+def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel sailTinyArmIsem fuel
 
-def naiveOutput := naiveModel terminationCondition initialState
+def naiveOutput := naiveModel nThreads terminationCondition initialState
 def naiveResults := prepareTestResults finalStateExtractor naiveOutput
-def promiseFirstOutput := promiseFirstModel terminationCondition initialState
+def promiseFirstOutput := promiseFirstModel nThreads terminationCondition initialState
 def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOutput
 
 #guard naiveResults == promiseFirstResults

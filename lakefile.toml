@@ -8,6 +8,11 @@ git = "https://github.com/Chris-F5/sail-tiny-arm"
 rev = "archsem-lean"
 subDir = "lean-snapshot/out"
 
+[[require]]
+name = "cli"
+git = "https://github.com/leanprover/lean4-cli"
+rev = "main"
+
 [[lean_lib]]
 name = "ArchSem"
 globs = ["ArchSem.**"]
@@ -17,5 +22,5 @@ name = "ArchSemTinyArm"
 globs = ["ArchSemTinyArm.**"]
 
 [[lean_exe]]
-name = "archsem-lean"
+name = "archsem"
 root = "Main"

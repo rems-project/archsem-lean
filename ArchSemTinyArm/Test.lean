@@ -10,15 +10,15 @@ open ArchSemTinyArm
 namespace ArchSemTinyArm.Test
 
 def fuel : Nat := 10
-def naiveModel : ComputationalTerminatingModel Unit :=
+def naiveModel : ComputationalTerminatingModel :=
   Promising.createNaiveModel sailTinyArmIsem fuel
-def promiseFirstModel : ComputationalTerminatingModel Unit :=
+def promiseFirstModel : ComputationalTerminatingModel :=
   Promising.createPromiseFirstModel sailTinyArmIsem fuel
 
-def runTestFromFile [DecidableEq Flag] [Repr Flag] (fname : System.FilePath)
-    (model : ComputationalTerminatingModel Flag) : IO Unit := do
+def runTestFromFile (fname : System.FilePath)
+    (model : ComputationalTerminatingModel) : IO Unit := do
   let test : TestRepr ← Parse.readTestFile fname
-  match Run.runLitmusTest test model with
+  match Run.runLitmusTest model test with
   | .ok () => pure ()
   | .error msg => throw (IO.userError s!"TEST FAILED [{fname.toString}]: {msg}")
 
