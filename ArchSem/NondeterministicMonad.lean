@@ -59,13 +59,13 @@ end NExcept
 
 
 /- Non-deterministic Error State Monad (`Exec` in archsem-rocq). -/
-def NEStateM (σ ε α : Type) : Type := σ → NExcept (σ × ε) (σ × α)
+def NEStateM (ε σ α : Type) : Type := σ → NExcept (σ × ε) (σ × α)
 
 namespace NEStateM
 
 def choose (res : List α) : NEStateM σ ε α :=
   fun s => NExcept.choose (res.map (fun r => (s, r)))
-def throwErrors (errors : List ε) : NEStateM σ ε α :=
+def throwErrors (errors : List ε) : NEStateM ε σ α :=
   fun s => { oks := [], errors := errors.map (fun e => (s, e))}
 def discard : NEStateM σ ε α :=
   fun _ => { oks := [], errors := [] }
@@ -79,19 +79,19 @@ instance : Monad (NEStateM σ ε) where
     let (s', a) ← m s
     f a s'
 
-instance : MonadState σ (NEStateM σ ε) where
+instance : MonadState σ (NEStateM ε σ) where
   get s := pure (s, s)
   set s _ := pure (s, ())
   modifyGet f s :=
     let (a, s') := f s
     pure (s', a)
 
-instance : MonadLift (NExcept ε) (NEStateM σ ε) where
+instance : MonadLift (NExcept ε) (NEStateM ε σ) where
   monadLift r := fun s =>
     { oks := r.oks.map (fun a => (s, a))
     , errors := r.errors.map (fun e => (s, e)) }
 
-def error (err : ε) : NEStateM σ ε α := throwErrors [err]
+def error (err : ε) : NEStateM ε σ α := throwErrors [err]
 def chooseFin (n : Nat) : NEStateM σ ε (Fin n) := choose (List.finRange n)
 
 def discardNone : Option α → NEStateM σ ε α
@@ -99,10 +99,10 @@ def discardNone : Option α → NEStateM σ ε α
   | none => discard
 
 def liftStateFull (getter : σ → σ') (setter : σ' → σ → σ)
-    (inner : NEStateM σ' ε α) : NEStateM σ ε α :=
+    (inner : NEStateM ε σ' α) : NEStateM ε σ α :=
   fun s => NExcept.mapState (fun s' => setter s' s) (inner (getter s))
 
-def mapError (f : ε → ε') (m : NEStateM σ ε α) : NEStateM σ ε' α :=
+def mapError (f : ε → ε') (m : NEStateM ε σ α) : NEStateM ε' σ α :=
   fun s =>
     let res := m s
     { oks := res.oks

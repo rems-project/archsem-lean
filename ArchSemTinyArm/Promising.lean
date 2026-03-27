@@ -291,7 +291,7 @@ states with the timestamp and value of the read.
 -/
 def readMem (loc : Loc) (vaddr : View) (macc : Arch.mem_acc)
     (init : InitialMem) (mem : PromisingMemory)
-    : NEStateM ThreadState String (Timestamp × Value) := do
+    : NEStateM String ThreadState (Timestamp × Value) := do
   if Arch.mem_acc_is_atomic_rmw macc then Except.error "Atomic RMW unsupported"
   let ts ← get
   let vbob := max ts.vdmb ts.visb |>.max ts.vacq
@@ -323,7 +323,7 @@ This may mutate memory if no existing promise can be fullfilled.
 -/
 def writeMem (tid : Nat) (loc : Loc) (vdata : View)
     (macc : Arch.mem_acc) (mem : PromisingMemory) (data : Value)
-    : NEStateM ThreadState String (PromisingMemory × View × Option View) := do
+    : NEStateM String ThreadState (PromisingMemory × View × Option View) := do
   let msg := { tid, loc, val := data }
   let is_release := Arch.mem_acc_is_rel_acq macc
   let ts ← get
@@ -357,7 +357,7 @@ return value indicate the success (true for success, false for error)
 def writeMemXcl (tid : Nat) (loc : Loc)
     (vdata : View) (macc : Arch.mem_acc)
     (mem : PromisingMemory) (data : Value)
-    : NEStateM ThreadState String (PromisingMemory × Option View) := do
+    : NEStateM String ThreadState (PromisingMemory × Option View) := do
   if Arch.mem_acc_is_atomic_rmw macc then Except.error "Atomic RMW unsupported" else
   let xcl := Arch.mem_acc_is_exclusive macc
   if xcl then
@@ -418,7 +418,7 @@ def injectModelState (tid : Fin n) (pmstate : ProjectedModelState) (mstate : Mod
   { mstate with threadStates := mstate.threadStates.set tid pmstate.threadState, mem := pmstate.mem }
 
 /- Automatically lift a thread state moand into a projected model state monad. -/
-instance : MonadLift (NEStateM ThreadState ε) (NEStateM ProjectedModelState ε) where
+instance : MonadLift (NEStateM ε ThreadState) (NEStateM ε ProjectedModelState) where
   monadLift := NEStateM.liftStateFull ProjectedModelState.threadState
    (fun tstate pmstate => { pmstate with threadState := tstate })
 
@@ -428,7 +428,7 @@ computation. This can mutate memory because it will append a write at the end of
 memory the corresponding event was not already promised.
 -/
 def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
-    : NEStateM ProjectedModelState String ((InstructionEffect.ret eff) × Option View) :=
+    : NEStateM String ProjectedModelState ((InstructionEffect.ret eff) × Option View) :=
   match eff with
   | .regWrite reg racc val => do
     match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
@@ -600,8 +600,8 @@ def noPromises (mstate : ModelState n) : Bool :=
 Use the instruction effect handler from a concurrency model to interpret
 the instruction semantics free monad into a non-deterministic state monad.
 -/
-def interpreter (handler : (eff : InstructionEffect) → NEStateM σ String (eff.ret))
-    : SailM α → NEStateM σ String α
+def interpreter (handler : (eff : InstructionEffect) → NEStateM String σ (eff.ret))
+    : SailM α → NEStateM String σ α
   | .pure x => return x
   | .impure (.Err err) _cont => Except.error (err.print)
   | .impure (.Ok eff) cont => do
@@ -611,7 +611,7 @@ def interpreter (handler : (eff : InstructionEffect) → NEStateM σ String (eff
 /--
 Run one instruction on thread `tid` using the instruction semantics provided by `isem`.
 -/
-def runThreadInstruction (isem : SailM Unit) (tid : Fin n) : NEStateM (ModelState n) String Unit := do
+def runThreadInstruction (isem : SailM Unit) (tid : Fin n) : NEStateM String (ModelState n) Unit := do
   let mstate ← get
   let handler (eff : InstructionEffect) := do
     return (←runEffect tid mstate.initmem eff).fst
@@ -634,7 +634,7 @@ def promiseMsg (tid : Fin n) (msg : Msg) (mstate : ModelState n) : ModelState n 
 /-- Run effect on thread, recording list of promises that can be made. -/
 def runEffectWithPromise (tid : Nat) (initmem : InitialMem)
     (base : View) (out : InstructionEffect)
-    : NEStateM (List Msg × ProjectedModelState) String (InstructionEffect.ret out) := do
+    : NEStateM String (List Msg × ProjectedModelState) (InstructionEffect.ret out) := do
   /- Run the effect on the ProjectedModelState. -/
   let (res, vpreOpt) ← NEStateM.liftStateFull Prod.snd
     (fun pmstate state => (state.fst, pmstate) )
@@ -656,7 +656,7 @@ def runEffectWithPromise (tid : Nat) (initmem : InitialMem)
 /-- Run a thread until its termination condition, recording a list of promises it can make. -/
 def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     (termination : TerminationCondition n) (fuel : Nat) (base : View)
-    : NEStateM (List Msg × ProjectedModelState) String Bool := do
+    : NEStateM String (List Msg × ProjectedModelState) Bool := do
   match fuel with
   | 0 =>
     /- If out of fuel and still not terminated then return false. -/
@@ -719,7 +719,7 @@ def promiseSelectTid (fuel : Nat) (mstate : ModelState n) (tid : Fin n)
 
 /-- Take any promising step for that tid and promise it -/
 def promiseTid (fuel : Nat) (tid : Fin n) (isem : SailM Unit)
-    (termination : TerminationCondition n) : NEStateM (ModelState n) String Unit := do
+    (termination : TerminationCondition n) : NEStateM String (ModelState n) Unit := do
   let mstate ← get
   let ev ← promiseSelectTid fuel mstate tid isem termination
   modify (fun _ => promiseMsg tid ev mstate)
@@ -730,7 +730,7 @@ If a thread has reached termination then no progress is made in that thread.
 This is used by the naive execution.
 -/
 def runStep (fuel : Nat) (isem : SailM Unit)
-    (termination : TerminationCondition n) : NEStateM (ModelState n) String Unit := do
+    (termination : TerminationCondition n) : NEStateM String (ModelState n) Unit := do
   let mstate ← get
   let tid ← NEStateM.chooseFin n
   if threadTerminated termination mstate tid then
@@ -750,7 +750,7 @@ Computationally evaluate all the possible allowed final states according to the
 promising model.
 -/
 def runNaive (fuel : Nat) (isem : SailM Unit) (n : Nat) (termination : TerminationCondition n)
-    : NEStateM (ModelState n) String (TerminatedModelState n termination) := do
+    : NEStateM String (ModelState n) (TerminatedModelState n termination) := do
   let mstate ← get
   if h : all_threads_terminated termination mstate then
     pure { state := mstate, proof := h }
@@ -768,7 +768,7 @@ least `(# of promises) + max(# of instructions) + 1`.
 -/
 def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     (n : Nat) (termination : TerminationCondition n)
-    : NEStateM (ModelState n) String (TerminatedModelState n termination) := do
+    : NEStateM String (ModelState n) (TerminatedModelState n termination) := do
   if fuel == 0 then NEStateM.error "Promise first: out of fuel in main loop" else
   let mstate ← get
   /- Find next possible promises or terminating states for each thread. -/
@@ -810,7 +810,7 @@ to the more abstract ComputationalTerminatingModel.
 -/
 def promisingRuntimeToModel
     (run : (n : Nat) → (termination : TerminationCondition n)
-         → NEStateM (ModelState n) String (TerminatedModelState n termination))
+         → NEStateM String (ModelState n) (TerminatedModelState n termination))
     : ComputationalTerminatingModel :=
   fun {nThreads : Nat} (termCond : TerminationCondition nThreads)
       (archState : ArchState nThreads) =>
