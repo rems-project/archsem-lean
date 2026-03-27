@@ -6,9 +6,7 @@ open ArchSem.TerminatingModel
 open ArchSemTinyArm.Promising
 open ArchSemTinyArm
 
-/- CR clang: there is some duplication here with sequential tests. -/
-
-def isem : SailM Unit := Out.Functions.fetch_and_execute ()
+def isem : SailM Unit := sailTinyArmIsem
 
 def extractRegs (regs : List (Fin n × Register)) (archState : ArchState n)
     : List (Option String) :=
@@ -56,8 +54,8 @@ def finalStateExtractor : ArchState nThreads → List (Option String)
   := extractRegs [(0, .R0)]
 def expectedResults := ListSet.ofList [[some "0x0000000000000110#64"]]
 
-def naiveModel : ComputationalTerminatingModel := createNaiveModel sailTinyArmIsem fuel
-def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel sailTinyArmIsem fuel
+def naiveModel : ComputationalTerminatingModel := createNaiveModel isem fuel
+def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel isem fuel
 
 def naiveOutput := naiveModel nThreads terminationCondition initialState
 def naiveResults := prepareTestResults finalStateExtractor naiveOutput
@@ -136,8 +134,8 @@ def expectedResults := ListSet.ofList [
   [some "0x0000000000000000#64", some "0x000000000000002a#64"],
   [some "0x0000000000000000#64", some "0x0000000000000000#64"]]
 
-def naiveModel : ComputationalTerminatingModel := createNaiveModel sailTinyArmIsem fuel
-def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel sailTinyArmIsem fuel
+def naiveModel : ComputationalTerminatingModel := createNaiveModel isem fuel
+def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel isem fuel
 
 def naiveOutput := naiveModel nThreads terminationCondition initialState
 def naiveResults := prepareTestResults finalStateExtractor naiveOutput

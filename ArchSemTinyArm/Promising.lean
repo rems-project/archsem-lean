@@ -453,7 +453,7 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
     modify (fun ps => { ps with iis := ps.iis.add view })
     return (val, none)
   | .memRead memReq => do
-    if memReq.numTag != 0 then Except.error "Memory request tags not supported" else
+    if memReq.numTag != 0 then Except.error "Memory request tags not supported"
     match memReq.size with
     | 4 => /- ifetch -/
       /-
@@ -812,7 +812,7 @@ def promisingRuntimeToModel
     (run : (n : Nat) → (termination : TerminationCondition n)
          → NEStateM String (ModelState n) (TerminatedModelState n termination))
     : ComputationalTerminatingModel :=
-  fun {nThreads : Nat} (termCond : TerminationCondition nThreads)
+  fun (nThreads : Nat) (termCond : TerminationCondition nThreads)
       (archState : ArchState nThreads) =>
     let initmem := InitialMem.ofMemoryMap archState.memory
     let threadStates := archState.regs.map ThreadState.init

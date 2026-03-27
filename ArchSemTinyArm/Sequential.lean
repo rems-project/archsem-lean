@@ -1,131 +1,109 @@
-import Std.Data.ExtDHashMap
-import Std.Data.ExtHashMap
 import Sail
 import ArchSem.Common
 import ArchSem.TerminatingModel
+import ArchSem.NondeterministicMonad
 import ArchSemTinyArm.Defs
 
 open Sail
 open Sail.ArchSem
 open ArchSem.TerminatingModel
+open ArchSem.NondeterministicMonad
 
 namespace ArchSemTinyArm.Sequential
 
-/- CR clang: modify this sequential model to enumerate results instead of having a choice source. -/
-
-structure ChoiceSource where
-  (α : Type)
-  (nextState : Nat → α → α)
-  (choose : (n : Nat) → [NeZero n] → α → Fin n)
-
-def trivialChoiceSource : ChoiceSource where
-  α := Unit
-  nextState _ _ := ()
-  choose _ _ _ := 0
-
-structure SequentialState (c : ChoiceSource) where
+structure SequentialState where
   regs : RegisterMap
-  choiceState : c.α
-  mem : Std.ExtHashMap Nat (BitVec 8)
-  tags : Unit
+  mem : MemoryMap
   cycleCount : Nat
-  sailOutput : Array String -- TODO: be able to use an IO monad to run
+  sailOutput : List String
 
--- CR clang: move these memory manipulation functions into MemoryMap namespace.
-def readByte (addr : Nat)
-    : EStateM (Error ue) (SequentialState c) (BitVec 8) := do
-  let .some s := (← get).mem.get? addr
-    | throw (.OutOfMemoryRange addr)
-  pure s
+def SequentialState.ofArchState (archState : ArchState 1) : SequentialState :=
+  { regs := archState.regs[0]
+  , mem := archState.memory
+  , cycleCount := 0
+  , sailOutput := []
+  }
 
-def writeByte (addr : Nat) (value : BitVec 8)
-    : EStateM (Error ue) (SequentialState c) PUnit := do
-  modify fun s => { s with mem := s.mem.insert addr value }
+def SequentialState.toArchState (state : SequentialState) : ArchState 1 :=
+  { regs := ⟨#[state.regs], rfl⟩
+  , memory := state.mem
+  , addressSpace := default
+  }
 
-def readBytes (size : Nat) (addr : Nat)
-    : EStateM (Error ue) (SequentialState c) (BitVec (8 * size)) :=
-  match size with
-  | 0 => pure BitVec.nil
-  | 1 => do
-    let b ← readByte addr
-    have h : 8 * 1 = 8 := rfl
-    return (h ▸ b)
-  | n + 1 => do
-    let b ← readByte addr
-    let bytes ← readBytes n (addr+1)
-    have h : 8 * n + 8 = 8 * (n + 1) := by omega
-    return (h ▸ bytes.append b)
+def SequentialState.has_terminated (termCond : TerminationCondition 1)
+    (state : SequentialState) : Prop :=
+  state.toArchState.has_terminated termCond
+deriving Decidable
 
--- CR clang: Fairly sure this address calculation is bugged. I should not reimplement this.
-def writeBytes (addr : Nat) (value : BitVec (8 * size))
-    : EStateM (Error ue) (SequentialState c) PUnit :=
-  let list := List.ofFn (fun i : Fin size => (addr + i.val, value.extractLsb' (i.val * 8) 8))
-  List.forM list (fun (a, v) => writeByte a v)
+--instance : Decidable (SequentialState.has_terminated termCond state) :=
+--  state.toArchState.has_terminated termCond
 
-def interpretEffect : (eff : InstructionEffect) → EStateM (Error userError) (SequentialState c) (eff.ret)
-  | .regRead reg _accessType => do
-    let .some s := (← get).regs.get? reg
-      | throw .Unreachable
-    pure s
-  | .regWrite reg _accessType value =>
-    modify fun s => { s with regs := s.regs.insert reg value }
+def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialState (eff.ret)
+  | .regRead reg racc => do
+    match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
+    match (← get).regs.get? reg with
+    | .some s => pure s
+    | .none => Except.error s!"Cant read unmapped register: {reprStr reg}"
+  | .regWrite reg racc value => do
+    match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
+    modify (fun s => { s with regs := s.regs.insert reg value })
   | .memRead req => do
+    if req.numTag != 0 then Except.error "Memory request tags not supported"
     let addr := req.address.toNat
-    let value ← readBytes req.size addr
-    .pure (.Ok (value, BitVec.zero req.size))
+    let value := (← get).mem.read req.size addr
+    pure (.Ok (value, BitVec.zero 0))
+  | .memWriteAnnounce _memReq => pure ()
   | .memWrite req value _tags => do
-    let addr := req.address.toNat
-    writeBytes addr value
+    let mem := (← get).mem.write req.size req.address value
+    modify (fun s => { s with mem := mem})
     pure (Ok ())
-  | .memWriteAnnounce _memReq => .pure ()
-  | .barrier _barrier => .pure ()
-  | .cacheOp _op => .pure ()
-  | .tlbOp _op => .pure ()
-  | .choice 0 => throw (.Assertion
-    "This sequential memory model does not support backtracking nondeterminisim. \
-     Use a smarter memory consistency model or a dumber ISA model.")
-  | .choice (n+1) =>
-    modifyGet (fun σ => (c.choose _ σ.choiceState, { σ with choiceState := c.nextState n σ.choiceState }))
-  | .clockCycle => modify fun s => { s with cycleCount := s.cycleCount + 1 }
+  | .barrier _barrier => pure ()
+  | .choice n => NEStateM.chooseFin n
+  | .clockCycle => modify (fun s => { s with cycleCount := s.cycleCount + 1 })
   | .getCycleCount => do pure (← get).cycleCount
-  | .translationStart _translationStart => .pure ()
-  | .translationEnd _translationEnd => .pure ()
-  | .archException _exception => .pure ()
-  | .returnExecption => .pure ()
-  | .printMessage msg => modify fun s ↦ { s with sailOutput := s.sailOutput.push msg }
-  
+  | .archException exception =>
+    Except.error s!"Architecture exception: {reprStr exception}"
+  | .printMessage msg => modify fun s ↦ { s with sailOutput := msg :: s.sailOutput }
+  | .cacheOp _op
+  | .tlbOp _op
+  | .translationStart _translationStart
+  | .translationEnd _translationEnd
+  | .returnExecption => Except.error "Unsupported effect"
 
-def sequentialInterpreter : PreSailM userError Unit → EStateM (Error userError) (SequentialState c) Unit
-  | .pure () => .pure ()
-  | .impure (.Err err) _cont => EStateM.throw err
-  | .impure (.Ok eff) cont => EStateM.bind (interpretEffect eff) (fun r => sequentialInterpreter (cont r))
+def sequentialInterpreter : SailM Unit → NEStateM String SequentialState Unit
+  | .pure () => pure ()
+  | .impure (.Err err) _cont => Except.error err.print
+  | .impure (.Ok eff) cont => do
+    let x ← interpretEffect eff
+    sequentialInterpreter (cont x)
 
-/-
-def main_of_sail_main (initialState : SequentialState c) (main : Unit → PreSailM ue Unit) : IO UInt32 := do
-  let stateM := sequentialInterpreter (main ())
-  let res := stateM.run initialState
-  match res with
-  | .ok _ s => do
-    for m in s.sailOutput do
-      IO.print m
-    return 0
-  | .error e s => do
-    for m in s.sailOutput do
-      IO.print m
-    IO.eprintln s!"Error while running the sail program!: {e.print}"
-    return 1
--/
+structure TerminatedSequentialState (termCond : TerminationCondition 1) where
+  state : SequentialState
+  proof : state.has_terminated termCond
 
-def sequentialModel (fuel : Nat) (isem : PreSailM userError Unit) (termination : TerminationCondition 1)
-    : EStateM (Error userError) (SequentialState c) Unit :=
+def runToTermination (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition 1)
+    : NEStateM String SequentialState (TerminatedSequentialState termination) :=
   match fuel with
-  /- CR clang: out-of-fuel should not be an assertion error. Think about this. -/
-  | 0 => throw (.Assertion "out of fuel")
+  | 0 => Except.error "out of fuel"
   | fuel+1 => do
     sequentialInterpreter isem
     let st ← get
-    match termination 0 st.regs with
-    | true => return ()
-    | false => sequentialModel fuel isem termination
+    if h : st.has_terminated termination then
+      return { state := st, proof := h }
+    else
+      runToTermination fuel isem termination
+
+def createSequentialModel (isem : SailM Unit) (fuel : Nat) : ComputationalTerminatingModel
+  | 1, (termCond : TerminationCondition 1), (initialState : ArchState 1) =>
+    let seqState : SequentialState := SequentialState.ofArchState initialState
+    let results := runToTermination fuel isem termCond seqState
+    let errors : List String := results.errors.map Prod.snd
+    let finalStates : List (TerminatedSequentialState termCond) := results.oks.map Prod.snd
+    let terminatedToFinalState (terminated : TerminatedSequentialState termCond)
+        : ModelResult 1 Unit termCond :=
+      ModelResult.finalState terminated.state.toArchState terminated.proof
+    ListSet.union (errors.map ModelResult.error) (finalStates.map terminatedToFinalState)
+  | nThreads, _termCond, _initialState =>
+    ListSet.ofList [ModelResult.error s!"Sequential model only supports one thread, not {nThreads}."]
 
 end ArchSemTinyArm.Sequential
