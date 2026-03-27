@@ -1,4 +1,4 @@
-import ArchSem.ExecutionMonad
+import ArchSem.NondeterministicMonad
 import ArchSem.Common
 import ArchSemTinyArm.Defs
 import ArchSem.TerminatingModel
@@ -15,7 +15,7 @@ mixed-size on top of the new interface.
 -/
 
 open Sail.ArchSem
-open ExecutionMonad
+open ArchSem.NondeterministicMonad
 open ArchSem.TerminatingModel
 
 namespace ArchSemTinyArm.Promising
@@ -692,8 +692,8 @@ def enumerateResults (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : S
   let base := mem.length
   let st : List Msg × ProjectedModelState := ([], { threadState := ts, mem := mem, iis := IIS.init })
   let res := runToTermination tid initmem isem termination fuel base st
-  let successStates := res.results.map Prod.fst
-  let outOfFuel := res.results.any (fun r => not r.snd)
+  let successStates := res.oks.map Prod.fst
+  let outOfFuel := res.oks.any (fun r => not r.snd)
   let promises := (successStates.map Prod.fst).flatten.eraseDups
   let finalStates := successStates.filterMap (fun (newProms, st) =>
     if newProms.isEmpty then some st.threadState else none)
@@ -708,14 +708,14 @@ def enumerateResults (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : S
 Non-deterministically choose a promise that can be made by thread `tid`.
 -/
 def promiseSelectTid (fuel : Nat) (mstate : ModelState n) (tid : Fin n)
-    (isem : SailM Unit) (termination : TerminationCondition n) : NResult String Msg := do
+    (isem : SailM Unit) (termination : TerminationCondition n) : NExcept String Msg := do
   let res := enumerateResults fuel tid mstate.initmem isem termination mstate.threadStates[tid] mstate.mem
   if res.out_of_fuel then
-    match (← NResult.chooseFin 2) with
-    | 0 => NResult.error "out of fuel"
-    | 1 => NResult.choose res.promises
+    match (← NExcept.chooseFin 2) with
+    | 0 => NExcept.error "out of fuel"
+    | 1 => NExcept.choose res.promises
   else
-    NResult.choose res.promises
+    NExcept.choose res.promises
 
 /-- Take any promising step for that tid and promise it -/
 def promiseTid (fuel : Nat) (tid : Fin n) (isem : SailM Unit)
@@ -821,7 +821,7 @@ def promisingRuntimeToModel
     let errors : ListSet (ModelResult nThreads Unit termCond) :=
       ListSet.ofList (output.errors.map (fun (_,msg) => ModelResult.error msg))
     let results : ListSet (ModelResult nThreads Unit termCond) :=
-      ListSet.ofList (output.results.map (fun (_,final) =>
+      ListSet.ofList (output.oks.map (fun (_,final) =>
         let archState := final.state.toArchState
         let proof := terminated_model_state_to_arch_state final.proof
         ModelResult.finalState archState proof))
