@@ -37,7 +37,7 @@ def initialRegs : RegisterMap :=
 
 def initialMem : MemoryMap :=
   MemoryMap.empty
-  |>.insert 4 0x500 0xca020020
+  |>.write 4 0x500 0xca020020
 
 abbrev nThreads := 1
 def initialState : ArchState nThreads := {
@@ -103,14 +103,14 @@ def initialRegsT1 : RegisterMap :=
 def initialMem : MemoryMap :=
   MemoryMap.empty
   /- Thread 0 @ 0x500 -/
-  |>.insert 4 0x500 0xf8206822  /- STR X2, [X1, X0] -/
-  |>.insert 4 0x504 0xf8236885  /- STR X5, [X4, X3] -/
+  |>.write 4 0x500 0xf8206822  /- STR X2, [X1, X0] -/
+  |>.write 4 0x504 0xf8236885  /- STR X5, [X4, X3] -/
   /- Thread 1 @ 0x600 -/
-  |>.insert 4 0x600 0xf8636885  /- LDR X5, [X4, X3] -/
-  |>.insert 4 0x604 0xf8606822  /- LDR X2, [X1, X0] -/
+  |>.write 4 0x600 0xf8636885  /- LDR X5, [X4, X3] -/
+  |>.write 4 0x604 0xf8606822  /- LDR X2, [X1, X0] -/
   /- Backing memory so the addresses exist -/
-  |>.insert 8 0x1100 0x0
-  |>.insert 8 0x1200 0x0
+  |>.write 8 0x1100 0x0
+  |>.write 8 0x1200 0x0
 
 abbrev nThreads := 2
 def initialState : ArchState nThreads := {

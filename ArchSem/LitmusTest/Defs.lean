@@ -32,7 +32,7 @@ deriving Repr
 
 def MemoryBlock.insertIntoMemoryMap (mem : MemoryMap) (block : MemoryBlock)
     : MemoryMap :=
-  block.data.foldl (fun (m, a) byte => (m.insertByte a byte, a + 1) ) (mem, block.addr)
+  block.data.foldl (fun (m, a) byte => (m.writeByte a byte, a + 1) ) (mem, block.addr)
   |> Prod.fst
 
 inductive FinalRegisterCondition where
