@@ -38,7 +38,7 @@ deriving Decidable
 --instance : Decidable (SequentialState.has_terminated termCond state) :=
 --  state.toArchState.has_terminated termCond
 
-def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialState (eff.ret)
+def interpretEffect : (eff : InstructionEffect α) → NEStateM String SequentialState α
   | .regRead reg racc => do
     match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
     match (← get).regs.get? reg with
@@ -51,12 +51,12 @@ def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialSt
     if req.numTag != 0 then Except.error "Memory request tags not supported"
     let addr := req.address.toNat
     let value := (← get).mem.read req.size addr
-    pure (.Ok (value, BitVec.zero 0))
+    pure (.ok (value, BitVec.zero 0))
   | .memWriteAnnounce _memReq => pure ()
   | .memWrite req value _tags => do
     let mem := (← get).mem.write req.size req.address value
     modify (fun s => { s with mem := mem})
-    pure (Ok ())
+    pure (.ok ())
   | .barrier _barrier => pure ()
   | .choice n => NEStateM.chooseFin n
   | .clockCycle => modify (fun s => { s with cycleCount := s.cycleCount + 1 })
@@ -72,8 +72,8 @@ def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialSt
 
 def sequentialInterpreter : SailM Unit → NEStateM String SequentialState Unit
   | .pure () => pure ()
-  | .impure (.Err err) _cont => Except.error err.print
-  | .impure (.Ok eff) cont => do
+  | .liftBind (.error err) _cont => Except.error err.print
+  | .liftBind (.ok eff) cont => do
     let x ← interpretEffect eff
     sequentialInterpreter (cont x)
 

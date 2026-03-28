@@ -11,7 +11,7 @@ subDir = "lean-snapshot/out"
 [[require]]
 name = "cli"
 git = "https://github.com/leanprover/lean4-cli"
-rev = "main"
+rev = "v4.29.0-rc8"
 
 [[lean_lib]]
 name = "ArchSem"

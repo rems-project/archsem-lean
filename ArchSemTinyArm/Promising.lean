@@ -427,8 +427,8 @@ Runs an effect in the promising model while doing the correct view tracking and
 computation. This can mutate memory because it will append a write at the end of
 memory the corresponding event was not already promised.
 -/
-def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
-    : NEStateM String ProjectedModelState ((InstructionEffect.ret eff) × Option View) :=
+def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect α)
+    : NEStateM String ProjectedModelState (α × Option View) :=
   match eff with
   | .regWrite reg racc val => do
     match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
@@ -473,7 +473,7 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
       | .none => Except.error s!"Modified instruction memory at {loc} {aligned_addr}"
       | .some word => pure word
       let opcode : BitVec 32 := (if bit2 then word.extractLsb 63 32 else word.extractLsb 31 0)
-      return (.Ok (opcode, BitVec.zero 0), none)
+      return (.ok (opcode, BitVec.zero 0), none)
     | 8 =>
       let loc ← match Loc.fromAddr memReq.address with
         | .none => Except.error s!"Address not supported {memReq.address}"
@@ -484,7 +484,7 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
       let mem := (← get).mem
       let (view, val) ← readMem loc vaddr memReq.accessKind initmem mem
       modify (fun s => { s with iis := s.iis.add view })
-      return (.Ok (val, BitVec.zero 0), none)
+      return (.ok (val, BitVec.zero 0), none)
     | _ => Except.error "Memory read of size other than 8 and 4"
   | .memWriteAnnounce _ => do
     let vaddr := (← get).iis.strict
@@ -501,7 +501,7 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
       let vdata := (← get).iis.strict
       let (mem, vpreOpt) ← writeMemXcl tid loc vdata memReq.accessKind mem val
       modify (fun s => {s with mem := mem})
-      return (.Ok (), vpreOpt)
+      return (.ok (), vpreOpt)
     | _ => Except.error "Unsupported memory write size"
   | .barrier (Barrier.Barrier_DMB dmb) => do
     let ts := (← get).threadState
@@ -595,16 +595,16 @@ Check if there are no outstanding promises.
 def noPromises (mstate : ModelState n) : Bool :=
   mstate.threadStates.all (fun tstate => tstate.promises.isEmpty)
 
--- TODO: generalize this free-monad interpretation and implement it in the free monad namespace.
+-- TODO: Maybe cslib provides a function to do this?
 /--
 Use the instruction effect handler from a concurrency model to interpret
 the instruction semantics free monad into a non-deterministic state monad.
 -/
-def interpreter (handler : (eff : InstructionEffect) → NEStateM String σ (eff.ret))
+def interpreter (handler : {β : Type} → (eff : InstructionEffect β) → NEStateM String σ β)
     : SailM α → NEStateM String σ α
   | .pure x => return x
-  | .impure (.Err err) _cont => Except.error (err.print)
-  | .impure (.Ok eff) cont => do
+  | .liftBind (.error err) _cont => Except.error (err.print)
+  | .liftBind (.ok eff) cont => do
     let x ← handler eff
     interpreter handler (cont x)
 
@@ -613,7 +613,8 @@ Run one instruction on thread `tid` using the instruction semantics provided by 
 -/
 def runThreadInstruction (isem : SailM Unit) (tid : Fin n) : NEStateM String (ModelState n) Unit := do
   let mstate ← get
-  let handler (eff : InstructionEffect) := do
+  let handler {β : Type} (eff : InstructionEffect β)
+      : NEStateM String ProjectedModelState β := do
     return (←runEffect tid mstate.initmem eff).fst
   /-
   The interpreter runs on a single thread (ProjectedModelState) which we
@@ -633,12 +634,12 @@ def promiseMsg (tid : Fin n) (msg : Msg) (mstate : ModelState n) : ModelState n 
 
 /-- Run effect on thread, recording list of promises that can be made. -/
 def runEffectWithPromise (tid : Nat) (initmem : InitialMem)
-    (base : View) (out : InstructionEffect)
-    : NEStateM String (List Msg × ProjectedModelState) (InstructionEffect.ret out) := do
+    (base : View) (α : Type) (eff : InstructionEffect α)
+    : NEStateM String (List Msg × ProjectedModelState) α := do
   /- Run the effect on the ProjectedModelState. -/
   let (res, vpreOpt) ← NEStateM.liftStateFull Prod.snd
     (fun pmstate state => (state.fst, pmstate) )
-    (runEffect tid initmem out)
+    (runEffect tid initmem eff)
   match vpreOpt with
   | .some vpre =>
     if vpre ≤ base then
@@ -664,7 +665,7 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     return (termination tid ts.regMap)
   | fuel + 1 => do
     /- Run one instruction on this thread. -/
-    let handler := runEffectWithPromise tid initmem base
+    let handler {β : Type} := @runEffectWithPromise tid initmem base β
     interpreter handler isem
     /-
     If we have terminated then return true.
