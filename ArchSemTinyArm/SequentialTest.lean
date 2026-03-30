@@ -1,5 +1,6 @@
 import ArchSemTinyArm.Sequential
 import ArchSemTinyArm.Defs
+import Mathlib.Data.Finset.Image
 
 open Sail.ArchSem
 open ArchSemTinyArm.Sequential
@@ -15,14 +16,13 @@ def extractRegs (regs : List (Fin n × Register)) (archState : ArchState n)
     archState.regs[tid].get? reg
   regs.map (fun (tid,reg) => getRegValue tid reg |> Option.map reprStr)
 
-def prepareTestResults [BEq α] (extractor : ArchState n → α)
-    (res : ListSet (ModelResult n Unit termCond))
-    : ListSet String × ListSet α :=
-  res.toList.foldl (fun (errs,results) r => match r with
-    | .finalState s _ => (errs, extractor s :: results)
-    | .flagged () => (errs.insert "Flagged", results)
-    | .error msg => (errs.insert msg, results)
-    ) (ListSet.empty, ListSet.empty)
+def prepareTestResults [DecidableEq α] (extractor : ArchState n → α)
+    (res : Finset (ModelResult n Unit termCond))
+    : Finset (Except String α) :=
+  res.image (fun
+    | .finalState s _ => .ok (extractor s)
+    | .flagged () => .error "Flagged state"
+    | .error msg => .error msg)
 
 /- Run EOR X0, X1, X2 at pc address 0x500, whose opcode is 0xca020020 -/
 namespace EOR
@@ -47,13 +47,14 @@ def terminationCondition : TerminationCondition 1 := fun 1 (regs : RegisterMap) 
 
 def finalStateExtractor : ArchState 1 → List (Option String)
   := extractRegs [(0, .R0)]
-def expectedResults := ListSet.ofList [[some "0x0000000000000110#64"]]
+def expectedResults : Finset (Except String (List (Option String))) :=
+  {.ok [some "0x0000000000000110#64"]}
 
 def fuel := 10
 def sequentialModel : ComputationalTerminatingModel := createSequentialModel isem fuel
 
 def output := sequentialModel 1 terminationCondition initialState
 def results := prepareTestResults finalStateExtractor output
-#guard results == ([], expectedResults)
+#guard results == expectedResults
 
 end EOR

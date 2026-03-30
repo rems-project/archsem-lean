@@ -2,6 +2,7 @@ import ArchSem.NondeterministicMonad
 import ArchSem.Common
 import ArchSemTinyArm.Defs
 import ArchSem.TerminatingModel
+import Mathlib.Data.Finset.Basic
 
 /-!
 This module contains a handwritten lean port of ArchSem rocq's
@@ -58,13 +59,14 @@ def InitialMem.empty : InitialMem := Std.HashMap.emptyWithCapacity 1024
 /- All memory accesses 8 byte aligned. -/
 def InitialMem.read (init : InitialMem) (loc : Loc) : Option Value := init.get? loc
 def InitialMem.ofMemoryMap (mem : MemoryMap) : InitialMem :=
-  let insertByte (init : InitialMem) (addr : BitVec 64) (value : BitVec 8) : InitialMem :=
+  let insertByte (init : InitialMem) (pair : BitVec 64 × BitVec 8) : InitialMem :=
+    let (addr, value) := pair
     let lowerBits : BitVec 3 := addr.truncate 3
     let loc : Loc := addr.extractLsb 63 3
     let word := init.getD loc (BitVec.zero 64)
     let newWord := BitVec.or word ((value.zeroExtend 64) <<< (8 * lowerBits.toNat))
     init.insert loc newWord
-  mem.fold insertByte InitialMem.empty
+  mem.toList.foldl insertByte InitialMem.empty
 
 /--
 The promising memory: a list of events.
@@ -142,7 +144,7 @@ structure ThreadState where
   Is must be ordered with oldest promises at the bottom of the list
   -/
   promises : List Timestamp
-  regs : Std.DHashMap Arch.register (fun reg => (Arch.register_type reg) × View)
+  regs : Std.ExtDTreeMap Arch.register (fun reg => (Arch.register_type reg) × View)
   /-- The coherence views. -/
   coh : Std.HashMap Loc View
 
@@ -241,7 +243,7 @@ def exclusive (loc : Loc) (t : Timestamp) (mem : PromisingMemory) : Bool :=
 
 def ThreadState.init (regs : RegisterMap) : ThreadState :=
   { promises := []
-  , regs := regs.map (fun _r rv => (rv, 0))
+  , regs := regs.map (fun r rv => (rv, 0))
   , coh := default
   , vrd := 0
   , vwr := 0
@@ -819,14 +821,14 @@ def promisingRuntimeToModel
     let threadStates := archState.regs.map ThreadState.init
     let mState : ModelState nThreads := { initmem, threadStates, mem := [] }
     let output := run nThreads termCond mState
-    let errors : ListSet (ModelResult nThreads Unit termCond) :=
-      ListSet.ofList (output.errors.map (fun (_,msg) => ModelResult.error msg))
-    let results : ListSet (ModelResult nThreads Unit termCond) :=
-      ListSet.ofList (output.oks.map (fun (_,final) =>
+    let errors : Finset (ModelResult nThreads Unit termCond) :=
+      (output.errors.map (fun (_,msg) => ModelResult.error msg)).toFinset
+    let results : Finset (ModelResult nThreads Unit termCond) :=
+      (output.oks.map (fun (_,final) =>
         let archState := final.state.toArchState
         let proof := terminated_model_state_to_arch_state final.proof
-        ModelResult.finalState archState proof))
-    ListSet.union errors results
+        ModelResult.finalState archState proof)).toFinset
+    errors ∪ results
 
 /--
 The naive model is more obviously correct than the promiseFirstModel, but

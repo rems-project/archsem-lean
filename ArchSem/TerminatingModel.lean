@@ -2,6 +2,7 @@ import Std.Data.ExtHashMap
 import Std.Data.HashSet
 import ArchSem.Common
 import Sail
+import Mathlib.Data.Finset.Basic
 
 open Sail.ArchSem
 
@@ -19,11 +20,12 @@ abbrev Address := BitVec Arch.addr_size
 /--
 An architecture memory map. We assume bytes of 8-bits indexed by an address bit vector.
 -/
-def MemoryMap := Std.HashMap Address (BitVec 8) deriving BEq
+def MemoryMap := Std.ExtTreeMap Address (BitVec 8)
+deriving DecidableEq
 
 namespace MemoryMap
 
-def empty : MemoryMap := Std.HashMap.emptyWithCapacity 1024
+def empty : MemoryMap := Std.ExtTreeMap.empty
 
 def readByte (addr : Address) (mem : MemoryMap) : BitVec 8 :=
   mem.getD addr 0
@@ -46,10 +48,10 @@ def write (size : Nat) (addr : Address) (word : BitVec (8 * size)) (mem : Memory
 end MemoryMap
 
 /-- An architecture register map. -/
-def RegisterMap [ArchExtra] := Std.DHashMap Arch.register Arch.register_type
-deriving BEq
+def RegisterMap [ArchExtra] := Std.ExtDTreeMap Arch.register Arch.register_type
+deriving DecidableEq
 
-def RegisterMap.empty [ArchExtra] : RegisterMap := Std.DHashMap.emptyWithCapacity 64
+def RegisterMap.empty [ArchExtra] : RegisterMap := Std.ExtDTreeMap.empty
 
 abbrev TerminationCondition [ArchExtra] (nThreads : Nat) := Fin nThreads → RegisterMap → Bool
 
@@ -58,7 +60,7 @@ structure ArchState (nThreads : Nat) where
   memory : MemoryMap
   addressSpace : Arch.addr_space
   regs : Vector RegisterMap nThreads
-deriving BEq
+deriving DecidableEq
 
 def ArchState.has_terminated (termCond : TerminationCondition nThreads)
     (s : ArchState nThreads) : Prop :=
@@ -80,10 +82,32 @@ instance [BEq Flag] : BEq (ModelResult n Flag termCond) where
     | .error m₁, .error m₂ => m₁ == m₂
     | _, _ => false
 
+-- TODO: comment and explain
+instance [ArchExtra] [DecidableEq Flag] (n : Nat) (termCond : TerminationCondition n)
+    : DecidableEq (ModelResult n Flag termCond) := by
+   intro r₁ r₂
+   cases r₁ <;> cases r₂
+   case finalState.finalState =>
+     rename_i s₁ _ s₂ _
+     by_cases s₁ = s₂
+     · exact isTrue (by simp; assumption)
+     · exact isFalse (by simp; assumption)
+   case flagged.flagged =>
+     rename_i f₁ f₂
+     simpa using (inferInstance : Decidable (f₁ = f₂))
+   case error.error =>
+     rename_i m₁ m₂
+     simpa using (inferInstance : Decidable (m₁ = m₂))
+   all_goals exact (isFalse (by intro h; contradiction))   
+  -- | .finalState s₁ _, .finalState s₂ _ => sorry
+  -- | .flagged f₁, .flagged f₂ => sorry
+  -- | .error m₁, .error m₂ => if h : m₁ = m₂ then isTrue (by simp[h]) else isFalse (by simp[h])
+  -- | x₁, x₂ => isFalse (by cases x₁ <;> cases x₂ <;> simp)
+ 
 -- CR clang for thibaut: archsem passed Flag to this type. Lets discuss.
 def ComputationalTerminatingModel :=
   (nThreads : Nat) → (termCond : TerminationCondition nThreads) →
-  ArchState nThreads → ListSet (ModelResult nThreads Unit termCond)
+  ArchState nThreads → Finset (ModelResult nThreads Unit termCond)
 
 -- TODO: non-computational model definition.
 

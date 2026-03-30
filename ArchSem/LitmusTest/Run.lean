@@ -1,6 +1,8 @@
 import ArchSem.LitmusTest.Defs
 import ArchSem.TerminatingModel
 import Sail.ArchSem
+import Mathlib.Data.Finset.Image
+import Mathlib.Data.Finset.Sort
 
 open ArchSem.TerminatingModel
 open Sail.ArchSem
@@ -8,7 +10,7 @@ open Sail.ArchSem
 namespace ArchSem.LitmusTest.Run
 
 -- TODO: print more concisely.
-def outcomesToString [ArchExtra] (states : List (ArchState nThreads)) : String :=
+def outcomesToString [ArchExtra] (states : Finset (ArchState nThreads)) : String :=
   let regMapToString (regs : RegisterMap) : String :=
     "[" ++ ", ".intercalate (regs.toList.map (fun pair => s!"{reprStr pair.fst}={reprStr pair.snd}")) ++ "]"
   let memMapToString (mem : MemoryMap) : String :=
@@ -17,12 +19,12 @@ def outcomesToString [ArchExtra] (states : List (ArchState nThreads)) : String :
     let regsStr := "[" ++ ", ".intercalate (state.regs.toList.map regMapToString) ++ "]"
     let memStr := memMapToString state.memory
     s!"regs={regsStr}, mem={memStr}"
-  "[\n" ++ "\n".intercalate (states.map archStateToString) ++ "]\n"
+  "[\n" ++ "\n".intercalate (states.image archStateToString).sort ++ "]\n"
 
 structure ArchTestRepr [ArchExtra] (nThreads : Nat) where
   initialState : ArchState nThreads
   terminationCondition : TerminationCondition nThreads
-  checkFinalConditions : ListSet (ArchState nThreads) → Except String Unit
+  checkFinalConditions : Finset (ArchState nThreads) → Except String Unit
 
 def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
     : Except String (ArchTestRepr test.registers.length) := do
@@ -56,42 +58,46 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
 
   -- Convert final condition check.
   let checkFinalMemoryCondition (archState : ArchState nThreads) (cond : FinalMemoryCondition)
-      : Except String Bool :=
+      : Bool :=
     let addr : Address := BitVec.ofNat Arch.addr_size cond.addr
     let word : BitVec (8 * cond.size) := archState.memory.read cond.size addr
     match cond.condition with
-    | .memEq n => pure (word.toNat == n)
-    | .memNe n => pure (word.toNat != n)
+    | .memEq n => word.toNat == n
+    | .memNe n => word.toNat != n
   let checkFinalThreadRegisterCondition (archState : ArchState nThreads) (tid : Tid)
-      (pair : String × FinalRegisterCondition) : Except String Bool := do
+      (pair : String × FinalRegisterCondition) : Bool := Id.run do
     let (regStr,cond) := pair
-    if h : tid >= nThreads then Except.error s!"Tid out of range {tid}" else
+    -- Is tid out of range.
+    if h : tid >= nThreads then false else
     let tid : Fin nThreads := ⟨tid, by simp at h ; exact h⟩
-    let reg : Arch.register ← ArchExtra.register_of_string regStr
-    let val : Arch.register_type reg ← match cond with
-      | .regEq rv | .regNe rv => ArchExtra.register_type_of_gen reg rv
+    let reg : Arch.register ← match ArchExtra.register_of_string regStr with
+      | .ok reg => reg
+      | .error _e => return false -- TODO: propigate error message.
+    let valGen : RegValGen := match cond with
+      | .regEq rv | .regNe rv => rv
+    let val : Arch.register_type reg ← match ArchExtra.register_type_of_gen reg valGen with
+      | .ok val => val
+      | .error _e => return false -- TODO: propigate error message.
     let trueVal : Arch.register_type reg ← match archState.regs[tid].get? reg with
       | .some val => pure val
-      | .none =>
-        Except.error s!"Register {reprStr reg} not set in final thread {tid}. Try including in initial state."
+      | .none => return false -- TODO: propigate error message (reg not set).
     match cond with
-      | .regEq _ => pure (val == trueVal)
-      | .regNe _ => pure (val != trueVal)
+      | .regEq _ => val == trueVal
+      | .regNe _ => val != trueVal
   let checkFinalThreadCondition (archState : ArchState nThreads) (cond : FinalThreadCondition)
-      : Except String Bool :=
-    cond.regConditions.allM (checkFinalThreadRegisterCondition archState cond.tid)
+      : Bool :=
+    cond.regConditions.all (checkFinalThreadRegisterCondition archState cond.tid)
   let checkFinalThreadConditions
       (archState : ArchState nThreads)
       (threadConditions : List FinalThreadCondition)
-      : Except String Bool :=
-    threadConditions.allM (checkFinalThreadCondition archState)
+      : Bool :=
+    threadConditions.all (checkFinalThreadCondition archState)
   let checkFinalMemoryConditions
       (archState : ArchState nThreads)
       (memoryConditions : List FinalMemoryCondition)
-      : Except String Bool := do
-    memoryConditions.allM (checkFinalMemoryCondition archState)
-  let checkFinalConditions (finalStates : ListSet (ArchState nThreads))
-      : Except String Unit := do
+      : Bool :=
+    memoryConditions.all (checkFinalMemoryCondition archState)
+  let checkFinalConditions (finalStates : Finset (ArchState nThreads)) : Except String Unit := do
     let (observables, unobservables)
         : (List (List FinalThreadCondition × List FinalMemoryCondition))
         × (List (List FinalThreadCondition × List FinalMemoryCondition))
@@ -99,21 +105,19 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
         | .observable threadConds memConds => ((threadConds, memConds) :: obs, unobs)
         | .unobservable threadConds memConds => (obs, (threadConds, memConds) :: unobs)
         ) ([], [])
-    let checkCondExists (cond : (List FinalThreadCondition × List FinalMemoryCondition))
-        : Except String Bool :=
-      finalStates.toList.anyM (fun archState => do
-        (← checkFinalThreadConditions archState cond.fst) &&
-        (← checkFinalMemoryConditions archState cond.snd) |> pure)
+    let checkCondExists (cond : (List FinalThreadCondition × List FinalMemoryCondition)) : Bool :=
+      decide (∃ archState ∈ finalStates,
+        (checkFinalThreadConditions archState cond.fst) ∧
+        (checkFinalMemoryConditions archState cond.snd))
     let debugInfo := s!"final states:\n{outcomesToString finalStates}"
-    if !(← observables.allM checkCondExists) then
+    if !(observables.all checkCondExists) then
       Except.error s!"Not all observable conditions observed.\n{debugInfo}"
-    if (← unobservables.anyM checkCondExists) then
+    if (unobservables.any checkCondExists) then
       Except.error "An unobservable condition was observed.\n{debugInfo}"
     pure ()
 
   -- Return ArchTestRepr.
   pure { initialState, terminationCondition, checkFinalConditions}
-
 
 def runLitmusTest [ArchExtra]
     (model : ComputationalTerminatingModel) (litmusTest : TestRepr)
@@ -121,12 +125,11 @@ def runLitmusTest [ArchExtra]
   let nThreads : Nat := litmusTest.registers.length
   let archTest : ArchTestRepr nThreads ← ArchTestRepr.ofTestRepr litmusTest
   let output := model nThreads archTest.terminationCondition archTest.initialState
-  let archStates ← output.toList.mapM (fun
-    | .finalState archState _ => pure archState
-    | .flagged f => Except.error s!"Flagged final state {reprStr f}"
-    | .error msg => Except.error msg
-    )
-  let archStates := ListSet.ofList archStates
+  let archStates := output.filterMap (fun
+    | .finalState archState _ => .some archState
+    | .flagged f => .none
+    | .error msg => .none
+    ) (by grind)
   archTest.checkFinalConditions archStates
 
 end ArchSem.LitmusTest.Run

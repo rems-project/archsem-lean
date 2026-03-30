@@ -102,8 +102,8 @@ def createSequentialModel (isem : SailM Unit) (fuel : Nat) : ComputationalTermin
     let terminatedToFinalState (terminated : TerminatedSequentialState termCond)
         : ModelResult 1 Unit termCond :=
       ModelResult.finalState terminated.state.toArchState terminated.proof
-    ListSet.union (errors.map ModelResult.error) (finalStates.map terminatedToFinalState)
+    (errors.map ModelResult.error).toFinset ∪ (finalStates.map terminatedToFinalState).toFinset
   | nThreads, _termCond, _initialState =>
-    ListSet.ofList [ModelResult.error s!"Sequential model only supports one thread, not {nThreads}."]
+    { ModelResult.error s!"Sequential model only supports one thread, not {nThreads}." }
 
 end ArchSemTinyArm.Sequential

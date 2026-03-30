@@ -25,6 +25,12 @@ We implement the extra fields and functions for each Architecture we wish to use
 This allows us to add new features without changing the sail backend.
 -/
 class ArchExtra [Arch] where
+  -- TODO: comment on why I need reg ordering
+  -- TODO: Also comment what the conjunction of ord, trans, lawful eq gives you.
+  register_ord : Ord Arch.register
+  register_trans : Std.TransCmp register_ord.compare
+  register_lawful_eq_cmp : Std.LawfulEqCmp register_ord.compare
+  -- register_lawful_eq_cmp : Std.LawfulEqCmp register_ord register_ord.compare
   /- There must be a default address space to be used in litmus tests. -/
   addr_space_inhabited : Inhabited Arch.addr_space
   /- Comparisons are required for checking final states in litmus tests. -/
@@ -48,6 +54,9 @@ class ArchExtra [Arch] where
   sys_reg_id_repr : Repr Arch.sys_reg_id
 
 /- Help lean4's type inference find the instances in ArchExtra. -/
+instance [ArchExtra] : Ord Arch.register := ArchExtra.register_ord
+instance [ArchExtra] : Std.TransCmp ArchExtra.register_ord.compare := ArchExtra.register_trans
+instance [ArchExtra] : Std.LawfulEqCmp ArchExtra.register_ord.compare := ArchExtra.register_lawful_eq_cmp
 instance [ArchExtra] : Inhabited Arch.addr_space  := ArchExtra.addr_space_inhabited
 instance [ArchExtra] (reg : Arch.register) : DecidableEq (Arch.register_type reg) := ArchExtra.register_type_deq reg
 instance [ArchExtra] : DecidableEq Arch.addr_space  := ArchExtra.addr_space_deq
@@ -74,7 +83,8 @@ name like `Tid`.
 -/
 abbrev Tid := Nat
 
-
+-- TODO: remove this because I'm replacing with Mathlib.Finset
+/-
 /-- Finite set implemented with unsorted linked list having no duplicates. -/
 def ListSet (α : Type) [BEq α] := List α
 
@@ -109,4 +119,8 @@ instance : BEq (ListSet α) :=
 instance [DecidableEq α] : DecidableEq (ListSet α) :=
   inferInstanceAs (DecidableEq (List α))
 
+instance : Membership α (ListSet α) where
+  mem s x := x ∈ s.toList
+
 end ListSet
+-/

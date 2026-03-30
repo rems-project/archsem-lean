@@ -58,7 +58,7 @@ def mapState (f : σ → σ') (r : NExcept (σ × ε) (σ × α)) : NExcept (σ'
 end NExcept
 
 
-/- Non-deterministic Error State Monad (`Exec` in archsem-rocq). -/
+/- Non-deterministic Error State Monad (`Exec` in archsem-rocq). Finite non-determinisim only. -/
 def NEStateM (ε σ α : Type) : Type := σ → NExcept (σ × ε) (σ × α)
 
 namespace NEStateM
