@@ -46,61 +46,62 @@ def registerOfString : String → Except String Arch.register
   | "_PC" => .ok ._PC
   | s => .error s!"Invalid register name '{s}'"
 
-def registerCompare : Arch.register → Arch.register → Ordering :=
-  compareOn regNum
-  where
-  regNum : Arch.register → Int
-    | ._PC => -1
-    | .R0 => 1
-    | .R1 => 2
-    | .R2 => 3
-    | .R3 => 4
-    | .R4 => 5
-    | .R5 => 6
-    | .R6 => 7
-    | .R7 => 8
-    | .R8 => 9
-    | .R9 => 10
-    | .R10 => 11
-    | .R11 => 12
-    | .R12 => 13
-    | .R13 => 14
-    | .R14 => 15
-    | .R15 => 16
-    | .R16 => 17
-    | .R17 => 18
-    | .R18 => 19
-    | .R19 => 20
-    | .R20 => 21
-    | .R21 => 22
-    | .R22 => 23
-    | .R23 => 24
-    | .R24 => 25
-    | .R25 => 26
-    | .R26 => 27
-    | .R27 => 28
-    | .R28 => 29
-    | .R29 => 30
-    | .R30 => 31
+/--- Used to define the register total order. -/
+private def regNum : Arch.register → Int
+  | ._PC => -1
+  | .R0 => 1
+  | .R1 => 2
+  | .R2 => 3
+  | .R3 => 4
+  | .R4 => 5
+  | .R5 => 6
+  | .R6 => 7
+  | .R7 => 8
+  | .R8 => 9
+  | .R9 => 10
+  | .R10 => 11
+  | .R11 => 12
+  | .R12 => 13
+  | .R13 => 14
+  | .R14 => 15
+  | .R15 => 16
+  | .R16 => 17
+  | .R17 => 18
+  | .R18 => 19
+  | .R19 => 20
+  | .R20 => 21
+  | .R21 => 22
+  | .R22 => 23
+  | .R23 => 24
+  | .R24 => 25
+  | .R25 => 26
+  | .R26 => 27
+  | .R27 => 28
+  | .R28 => 29
+  | .R29 => 30
+  | .R30 => 31
+
+lemma regNum_injective : Function.Injective regNum := by
+  simp [Function.Injective]
+  intro x y
+  intros
+  cases x <;> cases y <;> first
+    | contradiction
+    | rfl
 
 instance : Ord (Arch.register) where
-  compare := registerCompare
+  compare := compareOn regNum
 
 instance : Std.TransCmp (Ord.compare : Arch.register → Arch.register → Ordering) := by
-  simpa [registerCompare] using (inferInstance : Std.TransCmp (compareOn registerCompare.regNum))
+  simpa [compareOn, regNum] using (inferInstance : Std.TransCmp (compareOn regNum))
 
-/-
-TODO: this proof is a very inefficient brute force.
-I should prove registerCompare.regNum is injective and use that.
--/
 instance : Std.LawfulEqCmp (Ord.compare : Arch.register → Arch.register → Ordering) where
   eq_of_compare := by
-    intro a b
-    intros
-    simp [compare, registerCompare, compareOn, registerCompare.regNum] at *
-    cases a <;> cases b <;> first
-      | rfl
-      | contradiction
+    intro a b h
+    simp [compare, compareOn, compareOfLessAndEq] at *
+    split_ifs at h
+    rename_i eq
+    exact regNum_injective eq
 
 def registerTypeOfGen (reg : Arch.register)
     : RegValGen → Except String (Arch.register_type reg)
@@ -120,6 +121,8 @@ instance : ArchExtra := by
     { register_of_string := registerOfString
     , register_type_of_gen := registerTypeOfGen
     , .. }
+  -- Solve trivial cases
+  all_goals try infer_instance
   -- Solve the easy cases of the form `TypeClass α`.
   all_goals
     try
@@ -131,9 +134,6 @@ instance : ArchExtra := by
     intro
     (conv => rhs ; whnf)
     split <;> infer_instance
-  all_goals
-    try
-    infer_instance
 
 def sailTinyArmIsem := Out.Functions.fetch_and_execute ()
 

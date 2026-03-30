@@ -597,18 +597,15 @@ Check if there are no outstanding promises.
 def noPromises (mstate : ModelState n) : Bool :=
   mstate.threadStates.all (fun tstate => tstate.promises.isEmpty)
 
--- TODO: Maybe cslib provides a function to do this?
 /--
 Use the instruction effect handler from a concurrency model to interpret
 the instruction semantics free monad into a non-deterministic state monad.
 -/
 def interpreter (handler : {β : Type} → (eff : InstructionEffect β) → NEStateM String σ β)
-    : SailM α → NEStateM String σ α
-  | .pure x => return x
-  | .liftBind (.error err) _cont => Except.error (err.print)
-  | .liftBind (.ok eff) cont => do
-    let x ← handler eff
-    interpreter handler (cont x)
+    : SailM α → NEStateM String σ α :=
+  Cslib.FreeM.liftM (fun
+    | .error err => Except.error err.print
+    | .ok eff => handler eff)
 
 /--
 Run one instruction on thread `tid` using the instruction semantics provided by `isem`.

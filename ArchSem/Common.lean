@@ -25,8 +25,10 @@ We implement the extra fields and functions for each Architecture we wish to use
 This allows us to add new features without changing the sail backend.
 -/
 class ArchExtra [Arch] where
-  -- TODO: comment on why I need reg ordering
-  -- TODO: Also comment what the conjunction of ord, trans, lawful eq gives you.
+  /-
+  Registers must have a total (linear) order. This is necessary for efficiently defining
+  equality on an register to value map implementation.
+  -/
   register_ord : Ord Arch.register
   register_trans : Std.TransCmp register_ord.compare
   register_lawful_eq_cmp : Std.LawfulEqCmp register_ord.compare
@@ -82,45 +84,3 @@ sometimes we just want to use a Nat. And its nice to give this Nat a descriptive
 name like `Tid`.
 -/
 abbrev Tid := Nat
-
--- TODO: remove this because I'm replacing with Mathlib.Finset
-/-
-/-- Finite set implemented with unsorted linked list having no duplicates. -/
-def ListSet (α : Type) [BEq α] := List α
-
-namespace ListSet
-
-variable [BEq α] [BEq β]
-
-def empty : ListSet α := []
-
-def contains (s : ListSet α) (a : α) : Bool := s.any (· == a)
-
-def insert (s : ListSet α) (a : α) : ListSet α :=
-  if s.contains a then s else a :: s
-
-def toList (s : ListSet α) : List α := s
-
-def ofList (l : List α) : ListSet α :=
-  l.foldl insert ListSet.empty
-
-def map (f : α → β) (s : ListSet α) : ListSet β :=
-  ListSet.ofList (s.toList.map f)
-
-def filterMap (f : α → Option β) (s : ListSet α) : ListSet β :=
-  ListSet.ofList (s.toList.filterMap f)
-
-def union (s₁ s₂ : ListSet α) : ListSet α :=
-  s₂.foldl ListSet.insert s₁
-
-instance : BEq (ListSet α) :=
-  inferInstanceAs (BEq (List α))
-
-instance [DecidableEq α] : DecidableEq (ListSet α) :=
-  inferInstanceAs (DecidableEq (List α))
-
-instance : Membership α (ListSet α) where
-  mem s x := x ∈ s.toList
-
-end ListSet
--/

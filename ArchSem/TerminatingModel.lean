@@ -82,7 +82,11 @@ instance [BEq Flag] : BEq (ModelResult n Flag termCond) where
     | .error m₁, .error m₂ => m₁ == m₂
     | _, _ => false
 
--- TODO: comment and explain
+/---
+To implement DecidableEq for ModelResult, it is insufficient to add
+`deriving DecidableEq` since the inductive type contains `s.has_terminated termCond`
+which is a proposition type and does not itself implement DecidableEq.
+-/
 instance [ArchExtra] [DecidableEq Flag] (n : Nat) (termCond : TerminationCondition n)
     : DecidableEq (ModelResult n Flag termCond) := by
    intro r₁ r₂
@@ -99,10 +103,6 @@ instance [ArchExtra] [DecidableEq Flag] (n : Nat) (termCond : TerminationConditi
      rename_i m₁ m₂
      simpa using (inferInstance : Decidable (m₁ = m₂))
    all_goals exact (isFalse (by intro h; contradiction))   
-  -- | .finalState s₁ _, .finalState s₂ _ => sorry
-  -- | .flagged f₁, .flagged f₂ => sorry
-  -- | .error m₁, .error m₂ => if h : m₁ = m₂ then isTrue (by simp[h]) else isFalse (by simp[h])
-  -- | x₁, x₂ => isFalse (by cases x₁ <;> cases x₂ <;> simp)
  
 -- CR clang for thibaut: archsem passed Flag to this type. Lets discuss.
 def ComputationalTerminatingModel :=
