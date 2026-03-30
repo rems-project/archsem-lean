@@ -128,15 +128,15 @@ def tomlToFinalThreadConditions (table : Lake.Toml.Table)
     | some (.table _ t) => pure t
     | none => pure table
     | _ => Except.error "Failed to parse register final condition"
-  threadsTable.items.toList.mapM (fun (tid, regs) => do
+  threadsTable.items.toList.filterMapM (fun (tid, regs) => do
     let tid := tid.toString false
     let tid ← match tid.toNat? with
       | some tid => pure tid
-      | none => Except.error s!"Expected tid at '{tid}'"
+      | none => return .none
     let regConditions ← match regs with
       | .table _ regsTable => tomlToFinalRegisterConditions regsTable
       | _ => Except.error "Failed to parse final register conditions"
-    pure {tid, regConditions}
+    return (.some {tid, regConditions})
     )
 
 def tomlToFinalMemoryWordCondition (toml : Lake.Toml.Value)

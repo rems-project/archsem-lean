@@ -119,7 +119,7 @@ onto an initial memory.
 -/
 def toMemoryMap (init : InitialMem) (mem : PromisingMemory) : MemoryMap :=
   let latest : Std.HashMap Loc (BitVec (8*8)) :=
-    mem.foldl (fun m msg => m.insert msg.loc msg.val) init
+    mem.foldr (fun msg m => m.insert msg.loc msg.val) init
   latest.fold (fun m loc value => m.write 8 (Loc.toAddr loc) value) MemoryMap.empty
 
 end PromisingMemory

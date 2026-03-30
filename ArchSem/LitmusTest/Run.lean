@@ -113,7 +113,7 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
     if !(observables.all checkCondExists) then
       Except.error s!"Not all observable conditions observed.\n{debugInfo}"
     if (unobservables.any checkCondExists) then
-      Except.error "An unobservable condition was observed.\n{debugInfo}"
+      Except.error s!"An unobservable condition was observed.\n{debugInfo}"
     pure ()
 
   -- Return ArchTestRepr.
@@ -125,6 +125,23 @@ def runLitmusTest [ArchExtra]
   let nThreads : Nat := litmusTest.registers.length
   let archTest : ArchTestRepr nThreads ← ArchTestRepr.ofTestRepr litmusTest
   let output := model nThreads archTest.terminationCondition archTest.initialState
+  -- Finset.imageMap would make this easier.
+  let isError := (fun
+    | .finalState _ _ => False
+    | .flagged _ => True
+    | .error _ => True)
+  let : DecidablePred isError := by
+    simp [DecidablePred]
+    intro res
+    simp [isError]
+    split <;> infer_instance
+  let errors := output.filter isError
+  |>.image (fun
+    | .finalState _ _ => panic! "unreachable"
+    | .flagged f => s!"Unexpected flagged output {f}"
+    | .error msg => msg)
+  if errors != ∅ then
+    Except.error ("errors:" ++ "\n".intercalate errors.sort)
   let archStates := output.filterMap (fun
     | .finalState archState _ => .some archState
     | .flagged f => .none
