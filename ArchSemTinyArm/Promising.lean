@@ -183,10 +183,10 @@ initial memory.
 def readLast (loc : Loc) (init : InitialMem) (mem : PromisingMemory) : Option (Value × Timestamp) :=
   match mem with
   | [] => Option.map (·, 0) (init.read loc)
-  | msg :: mem =>
+  | msg :: mem' =>
     if msg.loc == loc then
       .some (msg.val, mem.length)
-    else readLast loc init mem
+    else readLast loc init mem'
 
 /--
 Reads from initial memory and fail, if the memory has been overwritten this will
@@ -239,11 +239,12 @@ def exclusive (loc : Loc) (t : Timestamp) (mem : PromisingMemory) : Bool :=
     if msg.loc == loc then
       List.all (mem.cutAfter t)
         (fun (msg' : Msg) => (msg'.tid == msg.tid) || !(msg'.loc == msg.loc))
-    else false
+    else
+      false
 
 def ThreadState.init (regs : RegisterMap) : ThreadState :=
   { promises := []
-  , regs := regs.map (fun r rv => (rv, 0))
+  , regs := regs.map (fun _r rv => (rv, 0))
   , coh := default
   , vrd := 0
   , vwr := 0
@@ -310,9 +311,9 @@ def readMem (loc : Loc) (vaddr : View) (macc : Arch.mem_acc)
     | none => time
   let vpost := max vpre read_view
   modify (ThreadState.updateCoherenceView loc time)
-  modify ({· with vrd := vpost})
-  modify ({· with vacq := (viewIf (Arch.mem_acc_is_rel_acq macc) vpost)})
-  modify ({· with vcap := vaddr})
+  modify ({· with vrd := max ts.vrd vpost})
+  modify ({· with vacq := max ts.vacq (viewIf (Arch.mem_acc_is_rel_acq macc) vpost)})
+  modify ({· with vcap := max ts.vcap vaddr})
   if Arch.mem_acc_is_exclusive macc then
     modify ({· with xclb := (time, vpost)})
   return (vpost, res)
@@ -343,8 +344,8 @@ def writeMem (tid : Nat) (loc : Loc) (vdata : View)
     NEStateM.discard
   modify (fun ts => { ts with promises := ts.promises.filter (· != time) })
   modify (fun ts => ts.updateCoherenceView loc time)
-  modify ({· with vwr := time})
-  modify ({· with vrel := (viewIf is_release time)})
+  modify ({· with vwr := max ts.vwr time})
+  modify ({· with vrel := max ts.vrel (viewIf is_release time)})
   pure (mem, time, (if new_promise then some vpre else none))
 
 /--
@@ -437,7 +438,7 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect α)
     let vreg := (← get).iis.strict
     let vreg' ←
       if reg == ._PC then
-        modify (fun ps => { ps with threadState := {ps.threadState with vcap := vreg} })
+        modify (fun ps => { ps with threadState := {ps.threadState with vcap := max ps.threadState.vcap vreg} })
         pure 0
       else pure vreg
     let ts := (← get).threadState
@@ -490,7 +491,7 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect α)
     | _ => Except.error "Memory read of size other than 8 and 4"
   | .memWriteAnnounce _ => do
     let vaddr := (← get).iis.strict
-    modify (fun s => { s with threadState := {s.threadState with vcap := vaddr} })
+    modify (fun ps => { ps with threadState := {ps.threadState with vcap := max ps.threadState.vcap vaddr} })
     return ((), none)
   | .memWrite memReq val _tags => do
     match memReq.size with
@@ -509,15 +510,15 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect α)
     let ts := (← get).threadState
     match dmb.types with
     | .MBReqTypes_All =>
-      modify ({ · with threadState := {ts with vdmb := (max ts.vrd ts.vwr)} })
+      modify ({ · with threadState := {ts with vdmb := max ts.vdmb (max ts.vrd ts.vwr)} })
     | .MBReqTypes_Reads =>
-      modify ({ · with threadState := {ts with vdmb := ts.vrd} })
+      modify ({ · with threadState := {ts with vdmb := max ts.vdmb ts.vrd} })
     | .MBReqTypes_Writes =>
-      modify ({ · with threadState := {ts with vdmbst := ts.vwr} })
+      modify ({ · with threadState := {ts with vdmbst := max ts.vdmbst ts.vwr} })
     return ((), none)
   | .barrier (Barrier.Barrier_ISB ()) => do
     let ts := (← get).threadState
-    modify ({ · with threadState := {ts with visb := ts.vcap} })
+    modify ({ · with threadState := {ts with visb := max ts.visb ts.vcap} })
     return ((), none)
   | .barrier b => Except.error s!"Unsupported barrier: {reprStr b}"
   | .choice n => do
@@ -758,7 +759,7 @@ def runNaive (fuel : Nat) (isem : SailM Unit) (n : Nat) (termination : Terminati
     match fuel with
     | 0 => NEStateM.error "Could not finish running within the size of the fuel"
     | fuel' + 1 =>
-      runStep (fuel' + 1) isem termination
+      runStep fuel isem termination
       runNaive fuel' isem n termination
 
 /--
@@ -770,6 +771,7 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     (n : Nat) (termination : TerminationCondition n)
     : NEStateM String (ModelState n) (TerminatedModelState n termination) := do
   if fuel == 0 then NEStateM.error "Promise first: out of fuel in main loop" else
+  let fuel := fuel - 1
   let mstate ← get
   /- Find next possible promises or terminating states for each thread. -/
   let executionResults := Vector.ofFn (fun tid =>
@@ -780,7 +782,7 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     let tid ← NEStateM.chooseFin n
     let nextEv ← NEStateM.choose executionResults[tid].promises
     modify (fun mstate => promiseMsg tid nextEv mstate)
-    runPromiseFirst (fuel - 1) isem n termination
+    runPromiseFirst fuel isem n termination
   | 1 =>
     /-
     If there is some choice of final states from each thread that form a valid terminated model state
