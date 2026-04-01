@@ -75,4 +75,12 @@ structure TestRepr where
   finalConditions : List FinalCondition
 deriving Repr
 
+/--
+Running a litmus test will result in this structure assuming no errors are
+encountered. It is strinctly a function of the final architecture states.
+-/
+inductive LitmusTestResult [ArchExtra]
+  | allowed
+  | forbidden (reason : String)
+
 end ArchSem.LitmusTest

@@ -13,10 +13,10 @@ def naiveModel : ComputationalTerminatingModel :=
 def promiseFirstModel : ComputationalTerminatingModel :=
   Promising.createPromiseFirstModel sailTinyArmIsem fuel
 
-#eval runTestFromFile "litmus_tests/MP.archsem.toml" naiveModel
-#eval runTestFromFile "litmus_tests/MP+dmbs.archsem.toml" naiveModel
+#eval guardTestFromFile true naiveModel "litmus_tests/MP.archsem.toml"
+#eval guardTestFromFile true naiveModel "litmus_tests/MP+dmbs.archsem.toml"
 
-#eval runTestFromFile "litmus_tests/MP.archsem.toml" promiseFirstModel
-#eval runTestFromFile "litmus_tests/MP+dmbs.archsem.toml" promiseFirstModel
+#eval guardTestFromFile true promiseFirstModel "litmus_tests/MP.archsem.toml"
+#eval guardTestFromFile true promiseFirstModel "litmus_tests/MP+dmbs.archsem.toml"
 
 end ArchSemTinyArm.Promising.Test
