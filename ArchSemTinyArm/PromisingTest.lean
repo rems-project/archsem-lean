@@ -1,6 +1,5 @@
 import ArchSemTinyArm.Promising
 import ArchSemTinyArm.Defs
-import Mathlib.Data.Finset.Image
 
 open Sail.ArchSem
 open ArchSem.TerminatingModel
@@ -16,13 +15,14 @@ def extractRegs (regs : List (Fin n × Register)) (archState : ArchState n)
     archState.regs[tid].get? reg
   regs.map (fun (tid,reg) => getRegValue tid reg |> Option.map reprStr)
 
-def prepareTestResults [DecidableEq α] (extractor : ArchState n → α)
-    (res : Finset (ModelResult n Unit termCond))
-    : Finset (Except String α) :=
-  res.image (fun
-    | .finalState s _ => .ok (extractor s)
-    | .flagged () => .error "Flagged state"
-    | .error msg => .error msg)
+def prepareTestResults [BEq α] (extractor : ArchState n → α)
+    (res : List (ModelResult n Unit termCond))
+    : List String × List α :=
+  res.foldl (fun (errs,results) r => match r with
+    | .finalState s _ => (errs, extractor s :: results)
+    | .flagged () => (errs.insert "Flagged", results)
+    | .error msg => (errs.insert msg, results)
+    ) ([], [])
 
 namespace EOR
 
@@ -49,11 +49,10 @@ def initialState : ArchState nThreads := {
 def terminationCondition : TerminationCondition nThreads := fun _tid regs =>
   regs.get? ._PC == .some (BitVec.ofNat 64 0x504)
 
-def fuel := 1
+def fuel := 2
 def finalStateExtractor : ArchState nThreads → List (Option String)
   := extractRegs [(0, .R0)]
-def expectedResults : Finset (Except String (List (Option String))) :=
-  {.ok [some "0x0000000000000110#64"]}
+def expectedResults := [[some "0x0000000000000110#64"]]
 
 def naiveModel : ComputationalTerminatingModel := createNaiveModel isem fuel
 def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel isem fuel
@@ -63,8 +62,13 @@ def naiveResults := prepareTestResults finalStateExtractor naiveOutput
 def promiseFirstOutput := promiseFirstModel nThreads terminationCondition initialState
 def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOutput
 
-#guard naiveResults == promiseFirstResults
-#guard naiveResults == expectedResults
+-- Check no errors
+#guard naiveResults.fst == []
+#guard promiseFirstResults.fst == []
+
+-- Check expected results
+#guard naiveResults.snd.isPerm expectedResults
+#guard promiseFirstResults.snd.isPerm expectedResults
 
 end EOR
 
@@ -129,11 +133,11 @@ def terminationCondition : TerminationCondition nThreads := fun tid regs =>
 def fuel := 6
 def finalStateExtractor : ArchState nThreads → List (Option String)
   := extractRegs [(1, .R5), (1, .R2)]
-def expectedResults : Finset (Except String (List (Option String))) :=
-  { .ok [some "0x0000000000000001#64", some "0x000000000000002a#64"]
-  , .ok [some "0x0000000000000001#64", some "0x0000000000000000#64"]
-  , .ok [some "0x0000000000000000#64", some "0x000000000000002a#64"]
-  , .ok [some "0x0000000000000000#64", some "0x0000000000000000#64"] }
+def expectedResults := [
+  [some "0x0000000000000001#64", some "0x000000000000002a#64"],
+  [some "0x0000000000000001#64", some "0x0000000000000000#64"],
+  [some "0x0000000000000000#64", some "0x000000000000002a#64"],
+  [some "0x0000000000000000#64", some "0x0000000000000000#64"]]
 
 def naiveModel : ComputationalTerminatingModel := createNaiveModel isem fuel
 def promiseFirstModel : ComputationalTerminatingModel := createPromiseFirstModel isem fuel
@@ -143,7 +147,12 @@ def naiveResults := prepareTestResults finalStateExtractor naiveOutput
 def promiseFirstOutput := promiseFirstModel nThreads terminationCondition initialState
 def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOutput
 
-#guard naiveResults == promiseFirstResults
-#guard naiveResults == expectedResults
+-- Check no errors
+#guard naiveResults.fst == []
+#guard promiseFirstResults.fst == []
+
+-- Check expected results
+#guard naiveResults.snd.isPerm expectedResults
+#guard promiseFirstResults.snd.isPerm expectedResults
 
 end MP

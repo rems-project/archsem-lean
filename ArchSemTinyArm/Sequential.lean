@@ -38,7 +38,7 @@ deriving Decidable
 --instance : Decidable (SequentialState.has_terminated termCond state) :=
 --  state.toArchState.has_terminated termCond
 
-def interpretEffect : (eff : InstructionEffect α) → NEStateM String SequentialState α
+def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialState (eff.ret)
   | .regRead reg racc => do
     match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
     match (← get).regs.get? reg with
@@ -72,8 +72,8 @@ def interpretEffect : (eff : InstructionEffect α) → NEStateM String Sequentia
 
 def sequentialInterpreter : SailM Unit → NEStateM String SequentialState Unit
   | .pure () => pure ()
-  | .liftBind (.error err) _cont => Except.error err.print
-  | .liftBind (.ok eff) cont => do
+  | .impure (.error err) _cont => Except.error err.print
+  | .impure (.ok eff) cont => do
     let x ← interpretEffect eff
     sequentialInterpreter (cont x)
 
@@ -102,8 +102,8 @@ def createSequentialModel (isem : SailM Unit) (fuel : Nat) : ComputationalTermin
     let terminatedToFinalState (terminated : TerminatedSequentialState termCond)
         : ModelResult 1 Unit termCond :=
       ModelResult.finalState terminated.state.toArchState terminated.proof
-    (errors.map ModelResult.error).toFinset ∪ (finalStates.map terminatedToFinalState).toFinset
+    (errors.map ModelResult.error) ++ (finalStates.map terminatedToFinalState).eraseDups
   | nThreads, _termCond, _initialState =>
-    { ModelResult.error s!"Sequential model only supports one thread, not {nThreads}." }
+    [ModelResult.error s!"Sequential model only supports one thread, not {nThreads}."]
 
 end ArchSemTinyArm.Sequential

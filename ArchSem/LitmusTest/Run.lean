@@ -1,8 +1,6 @@
 import ArchSem.LitmusTest.Defs
 import ArchSem.TerminatingModel
 import Sail.ArchSem
-import Mathlib.Data.Finset.Image
-import Mathlib.Data.Finset.Sort
 
 open ArchSem.TerminatingModel
 open Sail.ArchSem
@@ -10,7 +8,7 @@ open Sail.ArchSem
 namespace ArchSem.LitmusTest.Run
 
 -- TODO: print more concisely.
-def outcomesToString [ArchExtra] (states : Finset (ArchState nThreads)) : String :=
+def outcomesToString [ArchExtra] (states : List (ArchState nThreads)) : String :=
   let regMapToString (regs : RegisterMap) : String :=
     "[" ++ ", ".intercalate (regs.toList.map (fun pair => s!"{reprStr pair.fst}={reprStr pair.snd}")) ++ "]"
   let memMapToString (mem : MemoryMap) : String :=
@@ -19,12 +17,12 @@ def outcomesToString [ArchExtra] (states : Finset (ArchState nThreads)) : String
     let regsStr := "[" ++ ", ".intercalate (state.regs.toList.map regMapToString) ++ "]"
     let memStr := memMapToString state.memory
     s!"regs={regsStr}, mem={memStr}"
-  "[\n" ++ "\n".intercalate (states.image archStateToString).sort ++ "]\n"
+  "[\n" ++ "\n".intercalate (states.map archStateToString) ++ "]\n"
 
 structure ArchTestRepr [ArchExtra] (nThreads : Nat) where
   initialState : ArchState nThreads
   terminationCondition : TerminationCondition nThreads
-  checkFinalConditions : Finset (ArchState nThreads) → Except String Unit
+  checkFinalConditions : List (ArchState nThreads) → Except String Unit
 
 def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
     : Except String (ArchTestRepr test.registers.length) := do
@@ -97,7 +95,7 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
       (memoryConditions : List FinalMemoryCondition)
       : Bool :=
     memoryConditions.all (checkFinalMemoryCondition archState)
-  let checkFinalConditions (finalStates : Finset (ArchState nThreads)) : Except String Unit := do
+  let checkFinalConditions (finalStates : List (ArchState nThreads)) : Except String Unit := do
     let (observables, unobservables)
         : (List (List FinalThreadCondition × List FinalMemoryCondition))
         × (List (List FinalThreadCondition × List FinalMemoryCondition))
@@ -106,7 +104,7 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
         | .unobservable threadConds memConds => (obs, (threadConds, memConds) :: unobs)
         ) ([], [])
     let checkCondExists (cond : (List FinalThreadCondition × List FinalMemoryCondition)) : Bool :=
-      decide (∃ archState ∈ finalStates,
+      finalStates.any (fun archState => 
         (checkFinalThreadConditions archState cond.fst) ∧
         (checkFinalMemoryConditions archState cond.snd))
     let debugInfo := s!"final states:\n{outcomesToString finalStates}"
@@ -126,27 +124,17 @@ def runLitmusTest [ArchExtra]
   let archTest : ArchTestRepr nThreads ← ArchTestRepr.ofTestRepr litmusTest
   let output := model nThreads archTest.terminationCondition archTest.initialState
   -- Finset.imageMap would make this easier.
-  let isError := (fun
-    | .finalState _ _ => False
-    | .flagged _ => True
-    | .error _ => True)
-  let : DecidablePred isError := by
-    simp [DecidablePred]
-    intro res
-    simp [isError]
-    split <;> infer_instance
-  let errors := output.filter isError
-  |>.image (fun
-    | .finalState _ _ => panic! "unreachable"
-    | .flagged f => s!"Unexpected flagged output {f}"
-    | .error msg => msg)
-  if errors != ∅ then
-    Except.error ("errors:" ++ "\n".intercalate errors.sort)
+  let errors := output.filterMap (fun
+    | .finalState _ _ => .none
+    | .flagged f => .some s!"Unexpected flagged output {f}"
+    | .error msg => .some msg)
+  if !errors.isEmpty then
+    Except.error ("errors:" ++ "\n".intercalate errors)
   let archStates := output.filterMap (fun
     | .finalState archState _ => .some archState
-    | .flagged f => .none
-    | .error msg => .none
-    ) (by grind)
+    | .flagged _ => .none
+    | .error _ => .none
+    )
   archTest.checkFinalConditions archStates
 
 end ArchSem.LitmusTest.Run

@@ -2,7 +2,6 @@ import ArchSem.NondeterministicMonad
 import ArchSem.Common
 import ArchSemTinyArm.Defs
 import ArchSem.TerminatingModel
-import Mathlib.Data.Finset.Basic
 
 /-!
 This module contains a handwritten lean port of ArchSem rocq's
@@ -430,8 +429,8 @@ Runs an effect in the promising model while doing the correct view tracking and
 computation. This can mutate memory because it will append a write at the end of
 memory the corresponding event was not already promised.
 -/
-def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect α)
-    : NEStateM String ProjectedModelState (α × Option View) :=
+def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
+    : NEStateM String ProjectedModelState ((InstructionEffect.ret eff) × Option View) :=
   match eff with
   | .regWrite reg racc val => do
     match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
@@ -602,9 +601,9 @@ def noPromises (mstate : ModelState n) : Bool :=
 Use the instruction effect handler from a concurrency model to interpret
 the instruction semantics free monad into a non-deterministic state monad.
 -/
-def interpreter (handler : {β : Type} → (eff : InstructionEffect β) → NEStateM String σ β)
+def interpreter (handler : (eff : InstructionEffect) → NEStateM String σ eff.ret)
     : SailM α → NEStateM String σ α :=
-  Cslib.FreeM.liftM (fun
+  FreeM.liftM (fun
     | .error err => Except.error err.print
     | .ok eff => handler eff)
 
@@ -613,8 +612,8 @@ Run one instruction on thread `tid` using the instruction semantics provided by 
 -/
 def runThreadInstruction (isem : SailM Unit) (tid : Fin n) : NEStateM String (ModelState n) Unit := do
   let mstate ← get
-  let handler {β : Type} (eff : InstructionEffect β)
-      : NEStateM String ProjectedModelState β := do
+  let handler (eff : InstructionEffect)
+      : NEStateM String ProjectedModelState eff.ret := do
     return (←runEffect tid mstate.initmem eff).fst
   /-
   The interpreter runs on a single thread (ProjectedModelState) which we
@@ -634,8 +633,8 @@ def promiseMsg (tid : Fin n) (msg : Msg) (mstate : ModelState n) : ModelState n 
 
 /-- Run effect on thread, recording list of promises that can be made. -/
 def runEffectWithPromise (tid : Nat) (initmem : InitialMem)
-    (base : View) (α : Type) (eff : InstructionEffect α)
-    : NEStateM String (List Msg × ProjectedModelState) α := do
+    (base : View) (eff : InstructionEffect)
+    : NEStateM String (List Msg × ProjectedModelState) eff.ret := do
   /- Run the effect on the ProjectedModelState. -/
   let (res, vpreOpt) ← NEStateM.liftStateFull Prod.snd
     (fun pmstate state => (state.fst, pmstate) )
@@ -665,7 +664,7 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     return (termination tid ts.regMap)
   | fuel + 1 => do
     /- Run one instruction on this thread. -/
-    let handler {β : Type} := @runEffectWithPromise tid initmem base β
+    let handler := runEffectWithPromise tid initmem base
     interpreter handler isem
     /-
     If we have terminated then return true.
@@ -820,14 +819,14 @@ def promisingRuntimeToModel
     let threadStates := archState.regs.map ThreadState.init
     let mState : ModelState nThreads := { initmem, threadStates, mem := [] }
     let output := run nThreads termCond mState
-    let errors : Finset (ModelResult nThreads Unit termCond) :=
-      (output.errors.map (fun (_,msg) => ModelResult.error msg)).toFinset
-    let results : Finset (ModelResult nThreads Unit termCond) :=
+    let errors : List (ModelResult nThreads Unit termCond) :=
+      output.errors.map (fun (_,msg) => ModelResult.error msg)
+    let results : List (ModelResult nThreads Unit termCond) :=
       (output.oks.map (fun (_,final) =>
         let archState := final.state.toArchState
         let proof := terminated_model_state_to_arch_state final.proof
-        ModelResult.finalState archState proof)).toFinset
-    errors ∪ results
+        ModelResult.finalState archState proof))
+    errors ++ results.eraseDups
 
 /--
 The naive model is more obviously correct than the promiseFirstModel, but

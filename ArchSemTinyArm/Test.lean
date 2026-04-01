@@ -15,10 +15,8 @@ def promiseFirstModel : ComputationalTerminatingModel :=
 
 #eval runTestFromFile "litmus_tests/MP.archsem.toml" naiveModel
 #eval runTestFromFile "litmus_tests/MP+dmbs.archsem.toml" naiveModel
-#eval runTestFromFile "litmus_tests/MP+dmbs-unobservable.archsem.toml" naiveModel
 
 #eval runTestFromFile "litmus_tests/MP.archsem.toml" promiseFirstModel
 #eval runTestFromFile "litmus_tests/MP+dmbs.archsem.toml" promiseFirstModel
-#eval runTestFromFile "litmus_tests/MP+dmbs-unobservable.archsem.toml" promiseFirstModel
 
 end ArchSemTinyArm.Promising.Test

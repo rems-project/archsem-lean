@@ -81,7 +81,7 @@ private def regNum : Arch.register → Int
   | .R29 => 30
   | .R30 => 31
 
-lemma regNum_injective : Function.Injective regNum := by
+theorem regNum_injective : Function.Injective regNum := by
   simp [Function.Injective]
   intro x y
   intros
@@ -99,7 +99,8 @@ instance : Std.LawfulEqCmp (Ord.compare : Arch.register → Arch.register → Or
   eq_of_compare := by
     intro a b h
     simp [compare, compareOn, compareOfLessAndEq] at *
-    split_ifs at h
+    split at h <;> try split at h
+    all_goals try contradiction
     rename_i eq
     exact regNum_injective eq
 

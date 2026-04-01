@@ -1,8 +1,7 @@
-import Std.Data.ExtHashMap
+import Std.Data.ExtTreeMap
 import Std.Data.HashSet
 import ArchSem.Common
 import Sail
-import Mathlib.Data.Finset.Basic
 
 open Sail.ArchSem
 
@@ -107,7 +106,7 @@ instance [ArchExtra] [DecidableEq Flag] (n : Nat) (termCond : TerminationConditi
 -- CR clang for thibaut: archsem passed Flag to this type. Lets discuss.
 def ComputationalTerminatingModel :=
   (nThreads : Nat) → (termCond : TerminationCondition nThreads) →
-  ArchState nThreads → Finset (ModelResult nThreads Unit termCond)
+  ArchState nThreads → List (ModelResult nThreads Unit termCond)
 
 -- TODO: non-computational model definition.
 
