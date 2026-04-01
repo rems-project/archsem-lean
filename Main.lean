@@ -16,43 +16,44 @@ def modelFromStr (fuel : Nat) : String → Option ComputationalTerminatingModel
       ArchSemTinyArm.sailTinyArmIsem fuel |> some
   | _ => none
 
--- TODO: terminal colors.
 def runTests (p : Cli.Parsed) : IO UInt32 := do
   let testFnames : List System.FilePath := p.variableArgsAs! String |>.toList
-  if testFnames.length == 0 then
-    IO.eprintln s!"No tests specified."
-    return 1
   let fuel : Nat ← match p.flag? "fuel" |>.bind (Cli.Parsed.Flag.as? · Nat) with
     | .some fuel => pure fuel
     | .none =>
-      IO.eprintln s!"Fuel must be Nat."
+      IO.eprintln "Please specify fuel as a natural number."
       return 1
   let modelStr : String ← match p.flag? "model" |>.bind (Cli.Parsed.Flag.as? · String) with
     | .some str => pure str
     | .none =>
-      IO.eprintln s!"Model unspecified."
+      IO.eprintln "Model unspecified."
       return 1
   let model ← match modelFromStr fuel modelStr with
     | .some m => pure m
     | .none => do
       IO.eprintln s!"Model does not exist: '{modelStr}'"
       return 1
+  if testFnames.length == 0 then
+    IO.eprintln s!"No tests specified."
+    return 1
   let tests : List TestRepr ← testFnames.mapM Parse.readTestFile
-  let passed : List Bool ← List.zipWithM (fun fname test => do
-    let result : Except String Unit := Run.runLitmusTest model test
+  let errors : List String ← tests.filterMapM (fun test => do
+    let result : Except String LitmusTestResult := Run.runLitmusTest model test
     match result with
-    | .ok () =>
-      IO.print s!"[ PASS ] ({fname})\n"
-      pure true
+    | .ok .allowed =>
+      IO.print s!"{test.name}\tOk\n"
+      return Option.none
+    | .ok (.forbidden _) =>
+      IO.print s!"{test.name}\tNo\n"
+      return Option.none
     | .error msg =>
-      IO.print s!"[ FAIL ] ({fname}):\n{msg}\n"
-      pure false
-  ) testFnames tests
-  if passed.all (· == true) then
-    IO.println "✔ All tests passed."
+      IO.eprintln s!"[{test.name}] Error: {msg}"
+      return Option.some msg
+  )
+  if errors == [] then
     pure 0
   else
-    IO.println "✘ At least one test failed."
+    IO.eprintln "At least one test failed."
     pure 1
 
 
