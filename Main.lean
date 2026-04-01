@@ -36,8 +36,10 @@ def runTests (p : Cli.Parsed) : IO UInt32 := do
   if testFnames.length == 0 then
     IO.eprintln s!"No tests specified."
     return 1
-  let tests : List TestRepr ← testFnames.mapM Parse.readTestFile
-  let errors : List String ← tests.filterMapM (fun test => do
+  let errors : List String ← testFnames.filterMapM (fun fname => do
+    (← IO.getStdout).flush
+    (← IO.getStderr).flush
+    let test ← Parse.readTestFile fname
     let result : Except String LitmusTestResult := Run.runLitmusTest model test
     match result with
     | .ok .allowed =>
