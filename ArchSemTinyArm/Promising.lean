@@ -52,8 +52,8 @@ structure Msg where
   val : Value
 deriving DecidableEq, Repr
 
-def InitialMem := Std.HashMap Loc Value
-def InitialMem.empty : InitialMem := Std.HashMap.emptyWithCapacity 1024
+def InitialMem := Std.ExtTreeMap Loc Value
+def InitialMem.empty : InitialMem := Std.ExtTreeMap.empty
 
 /- All memory accesses 8 byte aligned. -/
 def InitialMem.read (init : InitialMem) (loc : Loc) : Option Value := init.get? loc
@@ -117,9 +117,9 @@ Produce a memory map by applying all the latest writes from a promising memory
 onto an initial memory.
 -/
 def toMemoryMap (init : InitialMem) (mem : PromisingMemory) : MemoryMap :=
-  let latest : Std.HashMap Loc (BitVec (8*8)) :=
+  let latest : Std.ExtTreeMap Loc (BitVec (8*8)) :=
     mem.foldr (fun msg m => m.insert msg.loc msg.val) init
-  latest.fold (fun m loc value => m.write 8 (Loc.toAddr loc) value) MemoryMap.empty
+  latest.foldl (fun m loc value => m.write 8 (Loc.toAddr loc) value) MemoryMap.empty
 
 end PromisingMemory
 
@@ -145,7 +145,7 @@ structure ThreadState where
   promises : List Timestamp
   regs : Std.ExtDTreeMap Arch.register (fun reg => (Arch.register_type reg) × View)
   /-- The coherence views. -/
-  coh : Std.HashMap Loc View
+  coh : Std.ExtTreeMap Loc View
 
   /-- The maximum output view of a read -/
   vrd : View
@@ -165,7 +165,7 @@ structure ThreadState where
   vrel : View
 
   /-- Forwarding bank. Stores records about the last write to each location by this thread. -/
-  fwdb : Std.HashMap Loc FwdItem
+  fwdb : Std.ExtTreeMap Loc FwdItem
 
   /--
   Exclusives bank. If there was a recent load exclusive but the corresponding

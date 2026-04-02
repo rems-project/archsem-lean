@@ -1,5 +1,4 @@
 import Std.Data.ExtTreeMap
-import Std.Data.HashSet
 import ArchSem.Common
 import Sail
 

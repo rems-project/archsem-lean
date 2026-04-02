@@ -1,4 +1,3 @@
-import Std.Data.ExtDHashMap
 import Out.Defs
 import Sail
 
