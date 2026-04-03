@@ -69,8 +69,21 @@ section PromiseFirstProof
 
 variable (isem : SailM Unit) (nThreads : Nat) (termCond : TerminationCondition nThreads)
 
+-- Common simplification bundle for NEStateM/NExcept proof scripts.
+open Lean Elab Tactic Lean.Parser.Tactic
+
+-- I've taken inspiration from https://github.com/leanprover-community/mathlib4/blob/8f1377de1fe0f57f74d9e3eddb3e1ed2e30a9cf9/Mathlib/Tactic/FieldSimp.lean
+-- There is supprisingly little written about this online.
+elab "simp_nestatem" loc:(location)? : tactic => do
+  let loc := loc.getD (← `(location| at ⊢))
+  evalTactic (← `(tactic| simp only [
+    pure, bind, get, set, modify, modifyGet,
+    NExcept.pure, NEStateM.bind,  NExcept.bind, NExcept.pure, NExcept.merge,
+    List.foldr, List.map, List.append_nil
+  ] $loc))
+
 theorem run_to_termination_monotonic_fuel
-    (promises : List Msg) (pstate : ProjectedModelState) (tid : Fin nThreads) (initmem : InitialMem) (mem : PromisingMemory)
+    (promises : List Msg) (pstate : ProjectedModelState) (tid : Fin nThreads) (initmem : InitialMem)
     (fuel : Nat)
     : ∀ s ∈ (runToTermination tid initmem isem termination fuel base (promises, pstate)).oks,
         s.snd →
@@ -83,32 +96,27 @@ theorem run_to_termination_monotonic_fuel
     contradiction
   | succ f ih =>
     intro s mem fuelRemains
-    simp [runToTermination, Bind.bind] at mem
+    simp only [runToTermination, Bind.bind] at mem
     repeat rw [NEStateM.bind_iff] at mem
     rcases mem with ⟨s', a', h_interp, h⟩
-    simp [get, NEStateM.bind, Bind.bind, pure, NExcept.pure, NExcept.bind, NExcept.merge, modify] at h
+    simp_nestatem at h
+    rw [runToTermination]
+    simp only [Bind.bind]
+    repeat rw [NEStateM.bind_iff]
+    refine ⟨s', a', h_interp, ?_⟩
+    simp_nestatem
     split at h
-    -- TODO: fix lots of repetition in the cases
     case succ.isFalse =>
-      simp [modify, modifyGet, NEStateM.bind, bind, pure, NExcept.pure, NExcept.bind, NExcept.merge] at h
-      have := ih s'.fst { threadState := s'.snd.threadState, mem := s'.snd.mem, iis := IIS.init } s h fuelRemains
-      rw [runToTermination]
-      simp [Bind.bind]
-      repeat rw [NEStateM.bind_iff]
-      refine ⟨s', a', h_interp, ?_⟩
-      simp [get, NEStateM.bind, Bind.bind, pure, NExcept.pure, NExcept.bind, NExcept.merge, modify]
+      simp_nestatem at h
       split
       case isFalse =>
-        simp [modifyGet, NEStateM.bind, bind, pure, NExcept.pure, NExcept.bind, NExcept.merge]
-        exact this
+        simp_nestatem
+        exact ih s'.fst
+          { threadState := s'.snd.threadState, mem := s'.snd.mem, iis := IIS.init }
+          s h fuelRemains
       case isTrue =>
         contradiction
     case succ.isTrue =>
-      rw [runToTermination]
-      simp [Bind.bind]
-      repeat rw [NEStateM.bind_iff]
-      refine ⟨s', a', h_interp, ?_⟩
-      simp [get, NEStateM.bind, Bind.bind, pure, NExcept.pure, NExcept.bind, NExcept.merge, modify]
       split
       case isFalse =>
         contradiction
@@ -116,10 +124,10 @@ theorem run_to_termination_monotonic_fuel
         assumption
 
 theorem enumerate_result_promises_monotonic_fuel
-   : ∀ (ts : ThreadState) (initmem : InitialMem) (mem : PromisingMemory)
-       (tid : Fin nThreads) (fuel : Nat),
-     ∀ s ∈ (enumerateResults fuel tid initmem isem termCond ts mem).promises,
-       s ∈ (enumerateResults (fuel + 1) tid initmem isem termCond ts mem).promises
+    (ts : ThreadState) (initmem : InitialMem) (mem : PromisingMemory)
+    (tid : Fin nThreads) (fuel : Nat)
+    : ∀ s ∈ (enumerateResults fuel tid initmem isem termCond ts mem).promises,
+        s ∈ (enumerateResults (fuel + 1) tid initmem isem termCond ts mem).promises
  := by
  sorry
 
