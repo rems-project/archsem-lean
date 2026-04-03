@@ -5,56 +5,35 @@ open ArchSemTinyArm.Promising
 open ArchSem.TerminatingModel
 open ArchSem.NondeterministicMonad
 
-
--- TODO: I can probably simplify this by rearranging order of cases.
 theorem NExcept.bind_iff {ε α β} (b : β) (m : NExcept ε α) (f : α → NExcept ε β)
      : b ∈ (NExcept.bind m f).oks ↔ ∃ (a : α), a ∈ m.oks ∧ b ∈ (f a).oks
   := by
-  apply Iff.intro
-  case mp =>
-    intro h
-    simp [NExcept.bind] at h
-    revert h
-    induction m.oks
-    case nil =>
+  simp only [NExcept.bind]
+  induction m.oks
+  case nil =>
+    apply Iff.intro
+    all_goals simp
+  case cons tail ih =>
+    simp only [NExcept.merge, List.foldr, List.map, List.mem_append]
+    apply Iff.intro
+    case mp =>
       intro h
-      simp [List.map] at h
-    case cons tail ih =>
-      rename_i head
-      intro mem
-      simp [NExcept.merge] at mem
-      rcases mem
-      case inl =>
-        rename_i h
-        exact ⟨head, by simp, h⟩
-      case inr =>
-        rename_i h
-        have := ih h
-        rcases this with ⟨a, l, r⟩
-        exact ⟨a, List.Mem.tail _ l, r⟩
-  case mpr =>
-    intro h
-    simp [NExcept.bind]
-    revert h
-    induction m.oks
-    case nil =>
+      cases h
+      case inl h =>
+        simp [h]
+      case inr h =>
+        rw [ih] at h
+        simp [h]
+    case mpr =>
       intro h
-      simp at h
-    case cons tail ih =>
-      intro h
-      rename_i head
-      rcases h with ⟨a, h⟩
-      rcases h with ⟨left, right⟩
-      rcases left
-      case head =>
-        simp [List.map, NExcept.merge]
-        apply Or.inl
-        exact right
-      case tail inTail =>
-        simp [List.map, NExcept.merge]
+      rcases h with ⟨a, h_in, h_in_ok⟩
+      cases h_in with
+      | head =>
+        simp [h_in_ok]
+      | tail _ h_in_tail =>
         apply Or.inr
-        apply ih
-        exact ⟨a, inTail, right⟩
+        apply ih.mpr
+        exact ⟨a, h_in_tail, h_in_ok⟩
 
 theorem NEStateM.bind_iff {ε σ α β} (s₀ : σ) (s : σ) (b : β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
     : (s, b) ∈ (NEStateM.bind m f s₀).oks ↔ ∃ (s' : σ) (a : α), (s', a) ∈ (m s₀).oks ∧ (s, b) ∈ (f a s').oks
