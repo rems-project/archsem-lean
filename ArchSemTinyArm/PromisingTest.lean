@@ -130,7 +130,7 @@ def terminationCondition : TerminationCondition nThreads := fun tid regs =>
   | 0 => regs.get? ._PC == .some (BitVec.ofNat 64 0x508)
   | 1 => regs.get? ._PC == .some (BitVec.ofNat 64 0x608)
 
-def fuel := 6
+def fuel := 7
 def finalStateExtractor : ArchState nThreads → List (Option String)
   := extractRegs [(1, .R5), (1, .R2)]
 def expectedResults := [

@@ -26,15 +26,20 @@ def error (e : ε) : NExcept ε α := { oks := [], errors := [e] }
 
 def chooseFin (n : Nat) : NExcept ε (Fin n) := choose (List.finRange n)
 
+def map (f : α → β) (m : NExcept ε α) : NExcept ε β := { oks := List.map f m.oks, errors := m.errors }
+def pure (v : α) : NExcept ε α := { oks := [v], errors := [] }
+def bind (m : NExcept ε α) (f : α → NExcept ε β) :=
+  (m.oks.map f).foldr NExcept.merge { oks := [], errors := m.errors }
+
 def toExceptList (m : NExcept ε α) : List (Except ε α) :=
   (m.oks.map Except.ok) ++ (m.errors.map Except.error)
 
 instance : Functor (NExcept ε) where
-  map f m := { oks := List.map f m.oks, errors := m.errors }
+  map := map
 
 instance : Monad (NExcept ε) where
-  pure v := { oks := [v], errors := [] }
-  bind m f := (m.oks.map f).foldr NExcept.merge { oks := [], errors := m.errors }
+  pure := pure
+  bind := bind
 
 instance : MonadLift (Except ε) (NExcept ε) where
   monadLift r := match r with
@@ -67,17 +72,20 @@ def choose (res : List α) : NEStateM σ ε α :=
   fun s => NExcept.choose (res.map (fun r => (s, r)))
 def throwErrors (errors : List ε) : NEStateM ε σ α :=
   fun s => { oks := [], errors := errors.map (fun e => (s, e))}
-def discard : NEStateM σ ε α :=
+def discard : NEStateM ε σ α :=
   fun _ => { oks := [], errors := [] }
+def bind (m : NEStateM ε σ α) (f : α → NEStateM ε σ β) : NEStateM ε σ β
+  := fun s => do
+    let (s', a) ← m s
+    f a s'
+  
 
 instance : Functor (NEStateM σ ε) where
   map f e := fun s =>  Functor.map (fun (s, a) => (s, f a)) (e s)
 
-instance : Monad (NEStateM σ ε) where
+instance : Monad (NEStateM ε σ) where
   pure a := fun s => pure (s, a)
-  bind m f := fun s => do
-    let (s', a) ← m s
-    f a s'
+  bind := NEStateM.bind
 
 instance : MonadState σ (NEStateM ε σ) where
   get s := pure (s, s)

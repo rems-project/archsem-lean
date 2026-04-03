@@ -660,8 +660,7 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
   match fuel with
   | 0 =>
     /- If out of fuel and still not terminated then return false. -/
-    let ts := (← get).snd.threadState
-    return (termination tid ts.regMap)
+    return false
   | fuel + 1 => do
     /- Run one instruction on this thread. -/
     let handler := runEffectWithPromise tid initmem base
@@ -751,13 +750,13 @@ promising model.
 -/
 def runNaive (fuel : Nat) (isem : SailM Unit) (n : Nat) (termination : TerminationCondition n)
     : NEStateM String (ModelState n) (TerminatedModelState n termination) := do
-  let mstate ← get
-  if h : all_threads_terminated termination mstate then
-    pure { state := mstate, proof := h }
-  else
-    match fuel with
-    | 0 => NEStateM.error "Could not finish running within the size of the fuel"
-    | fuel' + 1 =>
+  match fuel with
+  | 0 => NEStateM.error "Could not finish running within the size of the fuel"
+  | fuel' + 1 =>
+    let mstate ← get
+    if h : all_threads_terminated termination mstate then
+      pure { state := mstate, proof := h }
+    else
       runStep fuel isem termination
       runNaive fuel' isem n termination
 
