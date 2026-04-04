@@ -676,6 +676,7 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
       modify (fun s => (s.fst, { s.snd with iis := IIS.init }))
       runToTermination tid initmem isem termination fuel base
 
+-- TODO: Why am I using snake case here?
 structure EnumerationResult where
   promises : List Msg
   final_states : List ThreadState
@@ -710,9 +711,7 @@ def promiseSelectTid (fuel : Nat) (mstate : ModelState n) (tid : Fin n)
     (isem : SailM Unit) (termination : TerminationCondition n) : NExcept String Msg := do
   let res := enumerateResults fuel tid mstate.initmem isem termination mstate.threadStates[tid] mstate.mem
   if res.out_of_fuel then
-    match (← NExcept.chooseFin 2) with
-    | 0 => NExcept.error "out of fuel"
-    | 1 => NExcept.choose res.promises
+    NExcept.error "out of fuel"
   else
     NExcept.choose res.promises
 
