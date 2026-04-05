@@ -36,7 +36,8 @@ variable [Arch]
 /--
 ArchExtra is an extension of the Arch typeclass implemented by the lean-sail backend.
 We implement the extra fields and functions for each Architecture we wish to use in ArchSem.
-This allows us to add new features without changing the sail backend.
+This allows us to add new features without changing the sail backend or we
+can use it as a staging area before upstreaming features to the sail backend.
 -/
 class ArchExtra where
   /-

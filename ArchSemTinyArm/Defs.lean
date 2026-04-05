@@ -8,10 +8,7 @@ open ArchSem
 
 namespace ArchSemTinyArm
 
-instance : Repr Arch.addr_space := by
-  conv => rhs ; whnf
-  infer_instance
-
+/-- Parse register from string, e.g. used for parsing litmus tests. -/
 def registerOfString : String → Except String Arch.register
   | "R0" => .ok .R0
   | "R1" => .ok .R1
@@ -47,7 +44,7 @@ def registerOfString : String → Except String Arch.register
   | "_PC" => .ok ._PC
   | s => .error s!"Invalid register name '{s}'"
 
-/--- Used to define the register total order. -/
+/-- Used to define the register total order. -/
 private def regNum : Arch.register → Int
   | ._PC => -1
   | .R0 => 1
@@ -105,6 +102,7 @@ instance : Std.LawfulEqCmp (Ord.compare : Arch.register → Arch.register → Or
     rename_i eq
     exact regNum_injective eq
 
+/-- Specialize architecture-generic register value to TinyArm register. -/
 def registerTypeOfGen (reg : Arch.register)
     : RegValGen → Except String (Arch.register_type reg)
   | .number n => do
@@ -117,6 +115,7 @@ def registerTypeOfGen (reg : Arch.register)
     pure (h ▸ BitVec.ofNat 64 n)
   | _ => .error "Register value must be number"
 
+/-- The TinyArm ArchExtra instance. Infers instances from the context. -/
 instance : ArchExtra := by
   -- Split the goal into ArchExtra fields.
   refine'

@@ -1,10 +1,21 @@
-import ArchSemTinyArm.Promising
 import ArchSemTinyArm.Defs
+import ArchSemTinyArm.Promising
 
 open Sail.ArchSem
 open ArchSem.TerminatingModel
 open ArchSemTinyArm.Promising
 open ArchSemTinyArm
+
+/-!
+For more comprehensive testing, use the binary test runner.
+This file is for debugging purposes: if there is a problem with the model its
+nice to have some tests in-code so you can poke around more easily.
+For this reason, I allow some repetition between this and other
+`{Promising,Sequential}Test.lean`.
+-/
+
+
+namespace ArchSemTinyArm.PromisingTest
 
 def isem : SailM Unit := sailTinyArmIsem
 
@@ -156,3 +167,5 @@ def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOu
 #guard promiseFirstResults.snd.isPerm expectedResults
 
 end MP
+
+end ArchSemTinyArm.PromisingTest

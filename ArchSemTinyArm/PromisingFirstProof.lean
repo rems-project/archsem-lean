@@ -1,45 +1,22 @@
-import ArchSemTinyArm.Promising
-import ArchSem.TerminatingModel
 import Init.Data.List.Lemmas
+import ArchSem.TerminatingModel
+import ArchSemTinyArm.Promising
 
-open ArchSemTinyArm.Promising
-open ArchSem.TerminatingModel
 open ArchSem.NondeterministicMonad
+open ArchSem.TerminatingModel
+open ArchSemTinyArm.Promising
 
-theorem NExcept.bind_iff {ε α β} (b : β) (m : NExcept ε α) (f : α → NExcept ε β)
-     : b ∈ (NExcept.bind m f).oks ↔ ∃ (a : α), a ∈ m.oks ∧ b ∈ (f a).oks
-  := by
-  simp only [NExcept.bind]
-  induction m.oks with
-  | nil =>
-    apply Iff.intro
-    all_goals simp
-  | cons a tail ih =>
-    simp only [NExcept.merge, List.foldr, List.map, List.mem_append]
-    apply Iff.intro
-    case mp =>
-      rintro (h | h)
-      · simp [h]
-      · simp [ih.mp h]
-    case mpr =>
-      rintro ⟨a, h_in, h_in_ok⟩
-      cases h_in with
-      | head => exact Or.inl h_in_ok
-      | tail _ h_in_tail => exact Or.inr (ih.mpr ⟨a, h_in_tail, h_in_ok⟩)
-
-theorem NEStateM.bind_iff {ε σ α β} (s₀ : σ) (s : σ) (b : β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
-    : (s, b) ∈ (NEStateM.bind m f s₀).oks ↔ ∃ (s' : σ) (a : α), (s', a) ∈ (m s₀).oks ∧ (s, b) ∈ (f a s').oks
-  := by
-  have h_base := @NExcept.bind_iff (σ × ε) (σ × α) (σ × β) (s, b) (m s₀) (fun p => f p.snd p.fst)
-  simp [Bind.bind, NEStateM.bind, h_base]
-
-section PromiseFirstProof
+namespace ArchSemTinyArm.Promising
 
 -- Common simplification bundle for NEStateM/NExcept proof scripts.
 open Lean Elab Tactic Lean.Parser.Tactic
 
--- I've taken inspiration from https://github.com/leanprover-community/mathlib4/blob/8f1377de1fe0f57f74d9e3eddb3e1ed2e30a9cf9/Mathlib/Tactic/FieldSimp.lean
--- There is supprisingly little written about this online.
+/-
+TODO: This custom tactic is a bit brute force. Lets make it more precise.
+
+I've taken inspiration from https://github.com/leanprover-community/mathlib4/blob/8f1377de1fe0f57f74d9e3eddb3e1ed2e30a9cf9/Mathlib/Tactic/FieldSimp.lean
+There is supprisingly little written about this online.
+-/
 elab "simp_nestatem" loc:(location)? : tactic => do
   let loc := loc.getD (← `(location| at ⊢))
   evalTactic (← `(tactic| simp only [
@@ -121,9 +98,9 @@ theorem enumerate_result_promises_monotonic_fuel
     (fuel : Nat) (tid : Fin nThreads) (initmem : InitialMem) (isem : SailM Unit)
     (termCond : TerminationCondition nThreads) (ts : ThreadState) (mem : PromisingMemory)
     : ∀ s ∈ (enumerateResults fuel tid initmem isem termCond ts mem).promises,
-        ¬(enumerateResults fuel tid initmem isem termCond ts mem).out_of_fuel →
+        ¬(enumerateResults fuel tid initmem isem termCond ts mem).outOfFuel →
         s ∈ (enumerateResults (fuel + 1) tid initmem isem termCond ts mem).promises ∧
-        ¬(enumerateResults (fuel + 1) tid initmem isem termCond ts mem).out_of_fuel
+        ¬(enumerateResults (fuel + 1) tid initmem isem termCond ts mem).outOfFuel
   := by
   intro s
   simp only [enumerateResults]
@@ -215,4 +192,4 @@ theorem naive_runtime_monotonic_fuel
     case isTrue h_term =>
       simp [h_term, h]
 
-end PromiseFirstProof
+end ArchSemTinyArm.Promising

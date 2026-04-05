@@ -11,33 +11,37 @@ open ArchSem.NondeterministicMonad
 
 namespace ArchSemTinyArm.Sequential
 
+/-- Sequential model full state. -/
 structure SequentialState where
   regs : RegisterMap
   mem : MemoryMap
+  /-- Count clock cycle events from the isa semantics. -/
   cycleCount : Nat
+  /-- Print messages from the sail isa semantics in reverse order. -/
   sailOutput : List String
 
+/-- Lift architecture-specific state into model-specific state. -/
 def SequentialState.ofArchState (archState : ArchState 1) : SequentialState :=
-  { regs := archState.regs[0]
+  { regs := archState.regs[0] /- There is only one thread. -/
   , mem := archState.memory
   , cycleCount := 0
   , sailOutput := []
   }
 
+/-- Lower model-specific state into architecture-specific state. -/
 def SequentialState.toArchState (state : SequentialState) : ArchState 1 :=
   { regs := ⟨#[state.regs], rfl⟩
   , memory := state.mem
   , addressSpace := default
   }
 
+/-- Decidable proposition that a model state has terminated under the condition. -/
 def SequentialState.has_terminated (termCond : TerminationCondition 1)
     (state : SequentialState) : Prop :=
   state.toArchState.has_terminated termCond
 deriving Decidable
 
---instance : Decidable (SequentialState.has_terminated termCond state) :=
---  state.toArchState.has_terminated termCond
-
+/-- Interpret an ISA effect into a sequential state non-deterministic monad. -/
 def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialState (eff.ret)
   | .regRead reg racc => do
     match racc with | none => pure () | some _ => Except.error "Non trivial reg access types unsupported"
@@ -70,6 +74,7 @@ def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialSt
   | .translationEnd _translationEnd
   | .returnExecption => Except.error "Unsupported effect"
 
+/-- Interpret the given instruction semantics into the sequential models monad. -/
 def sequentialInterpreter : SailM Unit → NEStateM String SequentialState Unit
   | .pure () => pure ()
   | .impure (.error err) _cont => Except.error err.print
@@ -77,15 +82,20 @@ def sequentialInterpreter : SailM Unit → NEStateM String SequentialState Unit
     let x ← interpretEffect eff
     sequentialInterpreter (cont x)
 
+/-- A model state paired with a proof of its termination under the given condition. -/
 structure TerminatedSequentialState (termCond : TerminationCondition 1) where
   state : SequentialState
   proof : state.has_terminated termCond
 
+/--
+Run the instruction semantics until the fuel runs out or the termination
+condition is reached.
+-/
 def runToTermination (fuel : Nat) (isem : SailM Unit) (termination : TerminationCondition 1)
     : NEStateM String SequentialState (TerminatedSequentialState termination) :=
   match fuel with
   | 0 => Except.error "out of fuel"
-  | fuel+1 => do
+  | fuel + 1 => do
     sequentialInterpreter isem
     let st ← get
     if h : st.has_terminated termination then
@@ -93,6 +103,7 @@ def runToTermination (fuel : Nat) (isem : SailM Unit) (termination : Termination
     else
       runToTermination fuel isem termination
 
+/-- Create an abstract `ComputationalTerminatingModel` for our sequential model. -/
 def createSequentialModel (isem : SailM Unit) (fuel : Nat) : ComputationalTerminatingModel
   | 1, (termCond : TerminationCondition 1), (initialState : ArchState 1) =>
     let seqState : SequentialState := SequentialState.ofArchState initialState

@@ -6,6 +6,16 @@ open ArchSemTinyArm.Sequential
 open ArchSem.TerminatingModel
 open ArchSemTinyArm
 
+/-!
+For more comprehensive testing, use the binary test runner.
+This file is for debugging purposes: if there is a problem with the model its
+nice to have some tests in-code so you can poke around more easily.
+For this reason, I allow some repetition between this and other
+`{Promising,Sequential}Test.lean`.
+-/
+
+namespace ArchSemTinyArm.SequentialTest
+
 def isem : SailM Unit := Out.Functions.fetch_and_execute ()
 
 def extractRegs (regs : List (Fin n × Register)) (archState : ArchState n)
@@ -61,3 +71,6 @@ def results := prepareTestResults finalStateExtractor output
 #guard results.snd.isPerm expectedResults
 
 end EOR
+
+end ArchSemTinyArm.SequentialTest
+

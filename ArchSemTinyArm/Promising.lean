@@ -25,7 +25,7 @@ namespace ArchSemTinyArm.Promising
 /--
 This model only works for 8-bytes aligned location, as there in no support for
 mixed-sizes yet.
-To get the 64-bit physical address you need to append 3 zeros to a Loc.
+To get the 64-bit physical address, left shift by 3 bits.
 -/
 abbrev Loc := BitVec 61
 
@@ -33,32 +33,45 @@ abbrev Loc := BitVec 61
 def Loc.fromAddr (addr : BitVec 64) : Option Loc :=
   if BitVec.extractLsb 2 0 addr == BitVec.zero 3 then
     .some (BitVec.extractLsb 63 3 addr)
-  else .none
+  else .none /- unaligned -/
+
+/-- Convert a aligned loc to an ARM physical address. -/
 def Loc.toAddr (loc : Loc) : BitVec 64 :=
   BitVec.append loc (BitVec.zero 3)
 
-/-- Register and memory values (all memory access are 8 bytes aligned -/
+/-- Register and memory values (all memory access are 8 bytes aligned). -/
 abbrev Value := BitVec 64
 
-/-- Timestamps index into Memory. -/
+/-- Timestamps index (reversed) into the `PromisingMemory`. -/
 abbrev Timestamp := Nat
 
 /-- A view records a timeatamp of a memory write to capture some ordering requirement. -/
 abbrev View := Timestamp
 
-/-- This is an message in the promising model memory. The location is a physical
-    address as virtual memory is ignored by this model -/
+/--
+This is an message (recording a write) in the promising model memory.
+The location is an aligned physical address as virtual memory is ignored
+by this model.
+-/
 structure Msg where
+  /-- Origin thread id of the write. -/
   tid : Tid
   loc : Loc
   val : Value
 deriving DecidableEq, Repr
 
+/--
+Memory is an extensional tree map.
+Unlike the standard hash maps, this gives us both decidable equality
+and the ability to enumerate (key,value) pairs.
+-/
 def InitialMem := Std.ExtTreeMap Loc Value
 def InitialMem.empty : InitialMem := Std.ExtTreeMap.empty
 
-/- All memory accesses 8 byte aligned. -/
+/-- Read from an 8-byte aligned location. -/
 def InitialMem.read (init : InitialMem) (loc : Loc) : Option Value := init.get? loc
+
+/-- Convert a model-generic `MemoryMap` into the promising models `InitialMem`. -/
 def InitialMem.ofMemoryMap (mem : MemoryMap) : InitialMem :=
   let insertByte (init : InitialMem) (pair : BitVec 64 × BitVec 8) : InitialMem :=
     let (addr, value) := pair
@@ -70,17 +83,17 @@ def InitialMem.ofMemoryMap (mem : MemoryMap) : InitialMem :=
   mem.toList.foldl insertByte InitialMem.empty
 
 /--
-The promising memory: a list of events.
-
-The sequence is 1 indexed so that timestamp 0 represent memory as it was
-initially.
-
-The current implementation is a list in reverse order but that may change
+The promising memory is a list of messages (write events) in
+reverse chronological order.
+We index the `PromisingMemory` with `Timestamp`s, where timestap `0`
+refers to the `InitialMem`; timestamp `1` refers to the right-most (oldest)
+element in the list and so on going from right-to-left through the list.
 -/
 abbrev PromisingMemory := List Msg
 
 namespace PromisingMemory
 
+/-- Get the unique message (write event) associated with the timestamp if it exists. -/
 def lookup (t : Timestamp) (mem : PromisingMemory) : Option Msg :=
   if t == 0 then .none
   else if t <= mem.length then mem[mem.length - t]?
@@ -95,27 +108,28 @@ def cutBefore (t : Timestamp) (mem : PromisingMemory) : PromisingMemory :=
   List.drop (mem.length - t) mem
 
 /--
-Cuts the memory to only what exists after the timestamp, exclusive.
+Cuts the memory to only what exists after the timestamp (exclusive).
 Beware of timestamp computation. If you need the original timestamps,
 use cutAfterWithTimestamps.
 -/
 def cutAfter (t : Timestamp) (mem : PromisingMemory) : PromisingMemory :=
   List.take (mem.length - t) mem
 
+/-- Return a copy of the promising memory with timestamps attached to write events. -/
 def attachTimestamps (mem : PromisingMemory) : List (Msg × Timestamp) :=
   match mem with
   | [] => []
   | h :: t => (h, List.length mem) :: attachTimestamps t
 
 /--
-Cuts the memory to only what exists after the timestamp, excluded.
-Provide the original timestamps as a additional value.
+Cuts the memory to only what exists after the timestamp (exclusive)
+and attach the original timestamps to each write message.
 -/
 def cutAfterWithTimestamps (t : Timestamp) (mem : PromisingMemory) : List (Msg × Timestamp) :=
   List.take (mem.length - t) (mem.attachTimestamps)
 
 /--
-Produce a memory map by applying all the latest writes from a promising memory
+Produce a memory map by applying all writes in order from a promising memory
 onto an initial memory.
 -/
 def toMemoryMap (init : InitialMem) (mem : PromisingMemory) : MemoryMap :=
@@ -126,8 +140,8 @@ def toMemoryMap (init : InitialMem) (mem : PromisingMemory) : MemoryMap :=
 end PromisingMemory
 
 /--
-Forwarding item. To be used in a ThreadState's forwarding bank. A forwarding item
-records information about a threads last write to a location.
+Forwarding item to be used in a `ThreadState`s forwarding bank.
+A forwarding item records information about a threads last write to a location.
 -/
 structure FwdItem where
   /-- The timestamp of the write. -/
@@ -139,31 +153,36 @@ structure FwdItem where
 
 def FwdItem.init : FwdItem := { time := 0, view := 0, xcl := false }
 
+/-- A single threads inter-instruction state according to the model. -/
 structure ThreadState where
   /--
-  The promises that this thread must fullfil
-  Is must be ordered with oldest promises at the bottom of the list
+  The promises that this thread must fullfil.
+  Is must be ordered with oldest promises at the back of the list.
   -/
   promises : List Timestamp
+  /--
+  The threads registers and TODO: explain the view attached to register.
+  `regs` is a tree map for the same reason MemoryMap is.
+  -/
   regs : Std.ExtDTreeMap Arch.register (fun reg => (Arch.register_type reg) × View)
-  /-- The coherence views. -/
+  /-- The coherence views. The max view of all reads and writes from this location. -/
   coh : Std.ExtTreeMap Loc View
 
-  /-- The maximum output view of a read -/
+  /-- The maximum output view of a read. -/
   vrd : View
-  /-- The maximum output view of a write -/
+  /-- The maximum output view of a write. -/
   vwr : View
-  /-- The maximum output view of a dmb st -/
+  /-- The maximum output view of a dmb st. -/
   vdmbst : View
-  /-- The maximum output view of a dmb ld or dmb sy -/
+  /-- The maximum output view of a dmb ld or dmb sy. -/
   vdmb : View
-  /-- The maximum output view of control or address dependency -/
+  /-- The maximum output view of control or address dependency. -/
   vcap : View
-  /-- The maximum output view of an isb -/
+  /-- The maximum output view of an isb. -/
   visb : View
-  /-- The maximum output view of an acquire access -/
+  /-- The maximum output view of an acquire access. -/
   vacq : View
-  /-- The maximum output view of an release access -/
+  /-- The maximum output view of an release access. -/
   vrel : View
 
   /-- Forwarding bank. Stores records about the last write to each location by this thread. -/
@@ -190,8 +209,8 @@ def readLast (loc : Loc) (init : InitialMem) (mem : PromisingMemory) : Option (V
     else readLast loc init mem'
 
 /--
-Reads from initial memory and fail, if the memory has been overwritten this will
-fail. This is mainly for instruction fetching in this mode.
+Reads from initial memory or fail if the memory has since been overwritten.
+This is mainly for instruction fetching.
 -/
 def readInitial (loc : Loc) (init : InitialMem) (mem : PromisingMemory) : Option Value :=
   match readLast loc init mem with
@@ -201,7 +220,7 @@ def readInitial (loc : Loc) (init : InitialMem) (mem : PromisingMemory) : Option
 /--
 Returns the list of possible reads at a location restricted by a certain view.
 The list is never empty as one can always read from at least the initial value.
-Returns [None] if the address is not mapped in initial memory
+Returns none if the address is not mapped in initial memory
 -/
 def read (loc : Loc) (v : View) (init : InitialMem) (mem : PromisingMemory)
     : Option (List (Value × Timestamp)) :=
@@ -212,11 +231,6 @@ def read (loc : Loc) (v : View) (init : InitialMem) (mem : PromisingMemory)
               |> List.filter (fun (msg, _) => msg.loc == loc)
               |> List.map (fun (msg, v) => (msg.val, v))
     .some (lasts ++ [first])
-
-/-- Promise a write and add it at the end of memory -/
-def promise (msg : Msg) (mem : PromisingMemory) : View × PromisingMemory :=
-  let nmem := msg :: mem
-  (nmem.length, nmem)
 
 /--
 Returns a view among a promise set that correspond to a message. The oldest
@@ -237,11 +251,8 @@ def exclusive (loc : Loc) (t : Timestamp) (mem : PromisingMemory) : Bool :=
   match mem.lookup t with
   | .none => false
   | .some msg =>
-    if msg.loc == loc then
-      List.all (mem.cutAfter t)
-        (fun (msg' : Msg) => (msg'.tid == msg.tid) || !(msg'.loc == msg.loc))
-    else
-      false
+    msg.loc == loc &&
+    (mem.cutAfter t).all (fun msg' => (msg'.tid == msg.tid) || !(msg'.loc == msg.loc))
 
 def ThreadState.init (regs : RegisterMap) : ThreadState :=
   { promises := []
@@ -260,30 +271,38 @@ def ThreadState.init (regs : RegisterMap) : ThreadState :=
   }
 
 /--
-Extract a plain register map from the thread state without views. This is used
-to decide if a thread has terminated, and to observe the results of the model
+Extract a plain register map from the thread state without views.
+This is used to decide if a thread has terminated and to observe
+the results of the model.
 -/
 def ThreadState.regMap (ts : ThreadState) : RegisterMap :=
   ts.regs.map (fun _r (rv,_) => rv)
+
+/-- Update the value of reg if it has been initialized. -/
 def ThreadState.setReg (reg : Arch.register) (rv : (Arch.register_type reg) × View) (ts : ThreadState)
     : Option ThreadState :=
   if ts.regs.contains reg then
     .some { ts with regs := ts.regs.insert reg rv }
   else
     .none
+
 def ThreadState.setCoherenceView (loc : Loc) (v : View) (ts : ThreadState) : ThreadState :=
   { ts with coh := ts.coh.insert loc v }
+
 def ThreadState.updateCoherenceView (loc : Loc) (v : View) (ts : ThreadState) : ThreadState :=
   ts.setCoherenceView loc (max v (ts.coh.getD loc 0))
+
 def ThreadState.setForwardingItem (loc : Loc) (fi : FwdItem) (ts : ThreadState) : ThreadState :=
   { ts with fwdb := ts.fwdb.insert loc fi }
-def ThreadState.promise (v : View) (ts : ThreadState) : ThreadState :=
-  { ts with promises := v :: ts.promises }
+
+/-- Promise that this thread will eventually fulfill the memory event with timestamp `t`. -/
+def ThreadState.promise (t : Timestamp) (ts : ThreadState) : ThreadState :=
+  { ts with promises := t :: ts.promises }
 
 
 section InstructionSemantics
 
-def viewIf (b : Bool) (v : View) := if b then v else 0
+def viewIf (b : Bool) (v : View) : View := if b then v else 0
 
 /-- The view of a read from a forwarded write. -/
 def readFwdView (macc : Arch.mem_acc) (f : FwdItem) : View :=
@@ -319,6 +338,7 @@ def readMem (loc : Loc) (vaddr : View) (macc : Arch.mem_acc)
     modify ({· with xclb := (time, vpost)})
   return (vpost, res)
 
+-- TODO: clean up write functions and explain return values.
 /--
 Performs a memory write for a thread tid at a location loc with view
 vaddr and vdata. Return the new state.
@@ -335,7 +355,8 @@ def writeMem (tid : Nat) (loc : Loc) (vdata : View)
     match fulfill msg ts.promises mem with
     | some t => (t, mem, false)
     | none =>
-      let (view, newMem) := promise msg mem
+      let newMem := msg :: mem
+      let view := newMem.length
       (view, newMem, true)
   let vbob :=
     max ts.vdmbst ts.vdmb |>.max ts.visb |>.max ts.vacq
@@ -349,15 +370,7 @@ def writeMem (tid : Nat) (loc : Loc) (vdata : View)
   modify ({· with vrel := max ts.vrel (viewIf is_release time)})
   pure (mem, time, (if new_promise then some vpre else none))
 
-/--
-Tries to perform a memory write.
-
-If the store is not exclusive, the write is always performed and the third
-return value is true.
-
-If the store is exclusive the write may succeed or fail and the third
-return value indicate the success (true for success, false for error)
--/
+/-- Perform a memory write (that may or may not be exclusive). -/
 def writeMemXcl (tid : Nat) (loc : Loc)
     (vdata : View) (macc : Arch.mem_acc)
     (mem : PromisingMemory) (data : Value)
@@ -382,7 +395,7 @@ def writeMemXcl (tid : Nat) (loc : Loc)
 
 
 /--
-The inter-instruction multi-thread state of the model.
+The inter-instruction (multiple threads) state of the model.
 In archsem-rocq its called PState (Promising State)
 -/
 structure ModelState (nThreads : Nat) where
@@ -390,6 +403,7 @@ structure ModelState (nThreads : Nat) where
   initmem : InitialMem
   mem : PromisingMemory
 
+/-- Convert model-specific `ModelState` to architecture-wide, model-generic `ArchState`. -/
 def ModelState.toArchState (mState : ModelState nThreads) : ArchState nThreads :=
   { memory := mState.mem.toMemoryMap mState.initmem
   , addressSpace := ()
@@ -400,14 +414,15 @@ def ModelState.toArchState (mState : ModelState nThreads) : ArchState nThreads :
 structure IIS where
   strict : View
 
+/-- The intra-instruction state at the begining of an instruction. -/
 def IIS.init : IIS := { strict := 0 }
 def IIS.add (v : View) (iis : IIS) : IIS :=
   { iis with strict := iis.strict.max v }
 
 
 /--
-The ModelState projected is into a single thread so that it can be used in state
-monad effects which only concern one thread.
+The ModelState projected onto a single thread so that it can be used in state
+monads which only concern one thread.
 In archsem-rocq this is called PPState (Partial Promising State).
 -/
 structure ProjectedModelState where
@@ -421,12 +436,12 @@ def projectModelState (tid : Fin n) (mstate : ModelState n) : ProjectedModelStat
 def injectModelState (tid : Fin n) (pmstate : ProjectedModelState) (mstate : ModelState n) : ModelState n :=
   { mstate with threadStates := mstate.threadStates.set tid pmstate.threadState, mem := pmstate.mem }
 
-/- Automatically lift a thread state moand into a projected model state monad. -/
+/-- Automatically lift a thread state moand into a projected model state monad. -/
 instance : MonadLift (NEStateM ε ThreadState) (NEStateM ε ProjectedModelState) where
   monadLift := NEStateM.liftStateFull ProjectedModelState.threadState
    (fun tstate pmstate => { pmstate with threadState := tstate })
 
-/-
+/--
 Runs an effect in the promising model while doing the correct view tracking and
 computation. This can mutate memory because it will append a write at the end of
 memory the corresponding event was not already promised.
@@ -585,7 +600,7 @@ instance : Decidable (all_threads_terminated termination mstate) :=
 
 /--
 Given a proof that the promising model state (ModelState) is terminated,
-we construct a proof that the corresponding architecture state
+we can construct a proof that the corresponding architecture state
 (ArchState) is terminated according to the same termination condition.
 -/
 theorem terminated_model_state_to_arch_state
@@ -593,15 +608,13 @@ theorem terminated_model_state_to_arch_state
     → ArchState.has_terminated termination mstate.toArchState := by
   simp [all_threads_terminated, ArchState.has_terminated, ModelState.toArchState, threadTerminated]
 
-/--
-Check if there are no outstanding promises.
--/
+/-- Return true iff there are no outstanding promises in all threads. -/
 def noPromises (mstate : ModelState n) : Bool :=
   mstate.threadStates.all (fun tstate => tstate.promises.isEmpty)
 
 /--
-Use the instruction effect handler from a concurrency model to interpret
-the instruction semantics free monad into a non-deterministic state monad.
+Use an instruction effect handler to interpret the instruction semantics monad
+into a non-deterministic state monad.
 -/
 def interpreter (handler : (eff : InstructionEffect) → NEStateM String σ eff.ret)
     : SailM α → NEStateM String σ α :=
@@ -681,9 +694,9 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
 -- TODO: Why am I using snake case here?
 structure EnumerationResult where
   promises : List Msg
-  final_states : List ThreadState
+  finalStates : List ThreadState
   errors : List String
-  out_of_fuel : Bool
+  outOfFuel : Bool
 
 /--
 Run a thread until its termination condition, recording the promises it can make,
@@ -704,20 +717,18 @@ def enumerateResults (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : S
   let errors := res.errors.filterMap (fun ((newProms, _), errMsg) =>
     if newProms.isEmpty then some errMsg else none)
   --let errors := res.errors.map Prod.snd
-  { promises := promises, final_states := finalStates, errors := errors, out_of_fuel := outOfFuel }
+  { promises := promises, finalStates := finalStates, errors := errors, outOfFuel := outOfFuel }
 
-/--
-Non-deterministically choose a promise that can be made by thread `tid`.
--/
+/-- Non-deterministically choose a promise that can be made by thread `tid`. -/
 def promiseSelectTid (fuel : Nat) (mstate : ModelState n) (tid : Fin n)
     (isem : SailM Unit) (termination : TerminationCondition n) : NExcept String Msg := do
   let res := enumerateResults fuel tid mstate.initmem isem termination mstate.threadStates[tid] mstate.mem
-  if res.out_of_fuel then
+  if res.outOfFuel then
     NExcept.error "out of fuel"
   else
     NExcept.choose res.promises
 
-/-- Take any promising step for that tid and promise it -/
+/-- Take any promising step for that tid and promise it. -/
 def promiseTid (fuel : Nat) (tid : Fin n) (isem : SailM Unit)
     (termination : TerminationCondition n) : NEStateM String (ModelState n) Unit := do
   let mstate ← get
@@ -740,6 +751,7 @@ def runStep (fuel : Nat) (isem : SailM Unit)
     | 0 => promiseTid fuel tid isem termination
     | 1 => runThreadInstruction isem tid
 
+/-- A model state paired with proof it satisfies the termination condition. -/
 structure TerminatedModelState (nThreads : Nat)
     (termination : TerminationCondition nThreads) where
   state : ModelState nThreads
@@ -787,7 +799,7 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     If there is some choice of final states from each thread that form a valid terminated model state
     then we can return it.
     -/
-    let tstates ← executionResults.mapM (fun r => NEStateM.choose r.final_states)
+    let tstates ← executionResults.mapM (fun r => NEStateM.choose r.finalStates)
     let mstate : ModelState n := { threadStates := tstates, initmem := mstate.initmem, mem := mstate.mem }
     if !noPromises mstate then NEStateM.discard else
     if h : all_threads_terminated termination mstate then
@@ -800,7 +812,7 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     NEStateM.throwErrors errs
   | 3 =>
     /- Throw any out of fuel errors in execution results. -/
-    if executionResults.toList.any EnumerationResult.out_of_fuel then
+    if executionResults.toList.any EnumerationResult.outOfFuel then
       NEStateM.error "Promise first: out of fuel in enumeration"
     else
       NEStateM.discard
