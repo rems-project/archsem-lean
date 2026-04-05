@@ -1,22 +1,22 @@
 import Std.Data.ExtTreeMap
-import ArchSem.Common
 import Sail
+import ArchSem.Defs
 
 open Sail.ArchSem
 
-/-
+/-!
 This file provides a general definition for terminating architecture
 concurrency models.
 -/
 
 namespace ArchSem.TerminatingModel
 
-variable [ArchExtra]
+variable [Arch] [ArchExtra]
 
 abbrev Address := BitVec Arch.addr_size
 
 /--
-An architecture memory map. We assume bytes of 8-bits indexed by an address bit vector.
+An architecture memory map. We assume bytes of 8-bits indexed by a bit vector.
 -/
 def MemoryMap := Std.ExtTreeMap Address (BitVec 8)
 deriving DecidableEq
@@ -45,13 +45,20 @@ def write (size : Nat) (addr : Address) (word : BitVec (8 * size)) (mem : Memory
 
 end MemoryMap
 
+
 /-- An architecture register map. -/
 def RegisterMap [ArchExtra] := Std.ExtDTreeMap Arch.register Arch.register_type
 deriving DecidableEq
 
-def RegisterMap.empty [ArchExtra] : RegisterMap := Std.ExtDTreeMap.empty
+def RegisterMap.empty : RegisterMap := Std.ExtDTreeMap.empty
 
-abbrev TerminationCondition [ArchExtra] (nThreads : Nat) := Fin nThreads → RegisterMap → Bool
+/--
+When the termination condition returns true on all threads, the model
+should stop executing.
+
+The tid and associated register map is passed for each thread.
+-/
+abbrev TerminationCondition (nThreads : Nat) := Fin nThreads → RegisterMap → Bool
 
 /-- The generalized inter-instruction architecture state.  -/
 structure ArchState (nThreads : Nat) where
@@ -60,9 +67,17 @@ structure ArchState (nThreads : Nat) where
   regs : Vector RegisterMap nThreads
 deriving DecidableEq
 
+/--
+A decidable proposition as to weather an architecture state satisfies
+ther termination condition.
+-/
 def ArchState.has_terminated (termCond : TerminationCondition nThreads)
     (s : ArchState nThreads) : Prop :=
   ∀ tid : Fin nThreads, termCond tid s.regs[tid]
+
+-- CR clang: If I implement decidable on `has_terminated` will it automatically
+-- get decidable eq? I'm supprised that all propositions are not already
+-- DecidableEq. Aren't all propositions of the same type equal?
 
 /--
 The result type returned from an architecture concurrency model after a termination condition.
@@ -85,7 +100,7 @@ To implement DecidableEq for ModelResult, it is insufficient to add
 `deriving DecidableEq` since the inductive type contains `s.has_terminated termCond`
 which is a proposition type and does not itself implement DecidableEq.
 -/
-instance [ArchExtra] [DecidableEq Flag] (n : Nat) (termCond : TerminationCondition n)
+instance [DecidableEq Flag] (n : Nat) (termCond : TerminationCondition n)
     : DecidableEq (ModelResult n Flag termCond) := by
    intro r₁ r₂
    cases r₁ <;> cases r₂

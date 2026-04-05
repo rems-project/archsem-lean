@@ -1,20 +1,29 @@
+import ArchSem.TerminatingModel
 import ArchSem.LitmusTest.Defs
 import ArchSem.LitmusTest.Parse
 import ArchSem.LitmusTest.Run
-import ArchSem.TerminatingModel
 
 open ArchSem.TerminatingModel
 open ArchSem.LitmusTest
+open Sail.ArchSem
 
 namespace ArchSem.LitmusTest
 
-def runTestFromFile [ArchExtra] (model : ComputationalTerminatingModel)
+variable [Arch] [ArchExtra]
+
+/-- Read, parse and run the test in `fname`, using the '.archsem.toml' format. -/
+def runTestFromFile (model : ComputationalTerminatingModel)
     (fname : System.FilePath)
     : IO (Except String LitmusTestResult) := do
   let test : TestRepr ← Parse.readTestFile fname
   return Run.runLitmusTest model test
 
-def guardTestFromFile [ArchExtra] (expectAllowed : Bool)
+/--
+Read, parse and run the test in `fname`, using the '.archsem.toml' format.
+If the allowed/forbidden outcome disagrees with expectAllowed then throw an error.
+This function is useful to use in `#guard` commands for regression tests.
+-/
+def guardTestFromFile (expectAllowed : Bool)
     (model : ComputationalTerminatingModel) (fname : System.FilePath)
     : IO Unit := do
   let result ← runTestFromFile model fname

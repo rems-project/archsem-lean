@@ -44,7 +44,8 @@ elab "simp_nestatem" loc:(location)? : tactic => do
   let loc := loc.getD (← `(location| at ⊢))
   evalTactic (← `(tactic| simp only [
     pure, bind, get, set, modify, modifyGet,
-    NExcept.pure, NEStateM.bind,  NExcept.bind, NExcept.pure, NExcept.merge,
+    NExcept.pure, NExcept.bind, NExcept.merge,
+    NEStateM.pure, NEStateM.bind, 
     List.foldr, List.map, List.append_nil
   ] $loc))
 
@@ -95,7 +96,7 @@ theorem run_to_termination_stays_terminated
   induction fuel generalizing promises₀ pstate₀ with
   | zero =>
     intro h
-    simp [runToTermination, pure, NExcept.pure] at h
+    simp [runToTermination, pure, NEStateM.pure, NExcept.pure] at h
   | succ f ih =>
     intro h promises pstate
     rw [runToTermination] at h ⊢

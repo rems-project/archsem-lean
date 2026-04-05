@@ -1,22 +1,24 @@
+import ArchSem.Defs
 import ArchSem.NondeterministicMonad
-import ArchSem.Common
-import ArchSemTinyArm.Defs
 import ArchSem.TerminatingModel
+import ArchSemTinyArm.Defs
 
 /-!
 This module contains a handwritten lean port of ArchSem rocq's
 ArchSemArm/UMPromising.v at 6f2c001d9f1294c4c3ee41c92ab5e630cad867e7
-Febuary 2026. Which in turn is heavily based upon
+Febuary 2026.
+Which in turn is heavily based upon
 [the PDL19 promising paper](https://sf.snu.ac.kr/publications/promising-arm-riscv.pdf).
 Many of the variable naming conventions I take from the paper.
 
-The goal of this module is to define an User-mode promising model, without
-mixed-size on top of the new interface.
+The goal of this module is to define an User-mode promising model without
+mixed-size on top of the ArchSem lean interface.
 -/
 
 open Sail.ArchSem
 open ArchSem.NondeterministicMonad
 open ArchSem.TerminatingModel
+open ArchSem
 
 namespace ArchSemTinyArm.Promising
 

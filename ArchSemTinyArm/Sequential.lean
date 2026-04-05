@@ -1,5 +1,5 @@
 import Sail
-import ArchSem.Common
+import ArchSem.Defs
 import ArchSem.TerminatingModel
 import ArchSem.NondeterministicMonad
 import ArchSemTinyArm.Defs

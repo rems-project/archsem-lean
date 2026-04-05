@@ -1,9 +1,10 @@
 import Sail
 import Out.Defs
 import Out.TinyArm
-import ArchSem.Common
+import ArchSem.Defs
 
 open Sail.ArchSem
+open ArchSem
 
 namespace ArchSemTinyArm
 

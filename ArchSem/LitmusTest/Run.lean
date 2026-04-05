@@ -7,10 +7,12 @@ open Sail.ArchSem
 
 namespace ArchSem.LitmusTest.Run
 
+variable [Arch] [ArchExtra]
+
 /--
 Convert list of final states to a string for debugging.
 -/
-def finalStatesToString [ArchExtra] (states : List (ArchState nThreads)) : String :=
+def finalStatesToString (states : List (ArchState nThreads)) : String :=
   let regMapToString (regs : RegisterMap) : String :=
     "[" ++ ", ".intercalate (regs.toList.map (fun pair => s!"{reprStr pair.fst}={reprStr pair.snd}")) ++ "]"
   let memMapToString (mem : MemoryMap) : String :=
@@ -28,6 +30,7 @@ with `ArchTestRepr.ofTestRepr`.
 structure ArchTestRepr [ArchExtra] (nThreads : Nat) where
   initialState : ArchState nThreads
   terminationCondition : TerminationCondition nThreads
+  /-- Pass a list of final states to get test result. Encodes final conditions. -/
   checkFinalConditions : List (ArchState nThreads) → Except String LitmusTestResult
 
 def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
@@ -125,6 +128,10 @@ def ArchTestRepr.ofTestRepr [ArchExtra] (test : TestRepr)
   -- Return ArchTestRepr.
   pure { initialState, terminationCondition, checkFinalConditions}
 
+/--
+Run a litmus test using the given computational model and
+reutrn the result (allowed/forbidden).
+-/
 def runLitmusTest [ArchExtra]
     (model : ComputationalTerminatingModel) (litmusTest : TestRepr)
     : Except String LitmusTestResult := do

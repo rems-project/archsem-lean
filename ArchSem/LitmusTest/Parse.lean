@@ -1,15 +1,18 @@
+import Lake.Toml
 import Lake.Toml.ParserUtil
 import Sail
-
-import Lake.Toml
-import ArchSem.Common
+import ArchSem.Defs
 import ArchSem.LitmusTest.Defs
+
+/-!
+This file implements parsing of '.archsem.toml' litmus tests.
+-/
 
 open ArchSem.LitmusTest
 
 namespace ArchSem.LitmusTest.Parse
 
-/- Toml helper functions. -/
+/- Helper functions for parsing tomls in Except monad. -/
 def tomlFindStringElse (table : Lake.Toml.Table) (name : Lean.Name) (e : ε)
     : Except ε String :=
   match table.find? name with
@@ -27,9 +30,7 @@ def tomlFindNatElse (table : Lake.Toml.Table) (name : Lean.Name) (e : String)
   pure n.toNat
 
 -- TODO: prove termination.
-/--
- - Parse one RegValueGen. e.g. a value in [[registers]].
- -/
+/-- Parse one RegValueGen. e.g. a value in `[[registers]]`. -/
 partial def tomlToRegValGen : Lake.Toml.Value → Except String RegValGen
   | .integer _ i => .ok (.number i)
   | .string _ s => .ok (.string s)
@@ -42,27 +43,25 @@ partial def tomlToRegValGen : Lake.Toml.Value → Except String RegValGen
   | _ => .error "Failed to parse register value"
 
 /--
- - Parse one element of [[registers]]. Representing an initial assignment
- - of one threads registers.
- -/
+Parse one element of `[[registers]]`. Representing an initial assignment
+of one threads registers.
+-/
 def tomlToThreadRegisters (regs : Lake.Toml.Table)
     : Except String (List (String × RegValGen)) := do
   let a ← regs.items.mapM (fun (k,v) => do pure (k.toString false, (← tomlToRegValGen v)))
   pure a.toList
 
 /--
- - Parse [[registers]] or [[termCond]]. Representing an assignment of register
- - in a number of threads.
- -/
+Parse `[[registers]]` or `[[termCond]]`. Representing an assignment of register
+in a number of threads.
+-/
 def tomlToRegisters (threads : Array Lake.Toml.Value)
     : Except String (List (List (String × RegValGen))) :=
   threads.toList.mapM (fun threadRegs => match threadRegs with
     | .table _ t => tomlToThreadRegisters t
     | _ => Except.error "Failed to parse register list")
 
-/--
- - Parse a memory block. e.g. an element of [[memory]].
- -/
+/-- Parse a memory block. e.g. an element of `[[memory]]`. -/
 def tomlToMemoryBlock (table : Lake.Toml.Table) : Except String MemoryBlock := do
   let addr ← tomlFindNatElse table `addr "Failed to parse memory block addr"
   let step ← tomlFindNatElse table `step "Failed to parse memory block step"
@@ -94,14 +93,13 @@ def tomlToMemoryBlock (table : Lake.Toml.Table) : Except String MemoryBlock := d
     | _ => Except.error "Failed to parse memory block kind"
   pure { addr, step, data, sym, kind }
 
-/--
- - Parse [[memory]]. Representing a list of memory blocks.
- -/
+/-- Parse `[[memory]]`. Representing a list of memory blocks. -/
 def tomlToMemory (memory : Array Lake.Toml.Value) : Except String (List MemoryBlock) :=
   memory.toList.mapM (fun block => match block with
     | .table _ t => tomlToMemoryBlock t
     | _ => Except.error "Failed to parse memory block")
 
+/-- Parse a condition on a register. e.g. `{ op = "eq", val = 0x1 }` or `0x1`. -/
 def tomlToFinalRegisterConditions (table : Lake.Toml.Table)
     : Except String (List (String × FinalRegisterCondition)) :=
   table.items.toList.mapM (fun (reg, cond) => do
@@ -122,6 +120,7 @@ def tomlToFinalRegisterConditions (table : Lake.Toml.Table)
       | _ => Except.error "Failed to parse final register condition"
   )
 
+/-- Parse a condition on a thread. e.g. `{ R5 = { op = "eq", val = 0x1 } }` -/
 def tomlToFinalThreadConditions (table : Lake.Toml.Table)
     : Except String (List FinalThreadCondition) := do
   let threadsTable ← match table.find? `regs with
@@ -139,6 +138,7 @@ def tomlToFinalThreadConditions (table : Lake.Toml.Table)
     return (.some {tid, regConditions})
     )
 
+/-- Parse a condition on a memory word. -/
 def tomlToFinalMemoryWordCondition (toml : Lake.Toml.Value)
     : Except String FinalMemoryWordCondition :=
   match toml with
@@ -154,6 +154,7 @@ def tomlToFinalMemoryWordCondition (toml : Lake.Toml.Value)
     pure (.memEq i.toNat)
   | _ => Except.error "Failed to parse final memory word condition"
 
+/-- Parse final memory conditions. -/
 def tomlToFinalMemoryConditions (table : Lake.Toml.Table) (mem : List MemoryBlock)
     : Except String (List FinalMemoryCondition) :=
   match table.find? `mem with
@@ -169,6 +170,7 @@ def tomlToFinalMemoryConditions (table : Lake.Toml.Table) (mem : List MemoryBloc
   | .none => pure []
   | _ => Except.error "Failed to parse final memory condition"
 
+/-- Parse a final condition e.g. `observable.1.R5 = { op = "eq", val = 0x1 }`. -/
 def tomlToFinalCondition (condition : Lake.Toml.Table) (mem : List MemoryBlock)
     : Except String FinalCondition := do
   match (condition.find? `observable, condition.find? `unobservable) with
@@ -184,15 +186,14 @@ def tomlToFinalCondition (condition : Lake.Toml.Table) (mem : List MemoryBlock)
   | (none, none) => Except.error "Failed to parse empty final condition"
   | _ => Except.error "Failed to parse final condition"
 
-/--
- - Parse [[outcome]]. Representing a list of final conditions.
- -/
+/-- Parse `[[outcome]]`. Representing a list of final conditions. -/
 def tomlToFinalConditions (finals : Array Lake.Toml.Value) (mem : List MemoryBlock)
     : Except String (List FinalCondition) :=
   finals.toList.mapM (fun condition => match condition with
     | .table _ t => tomlToFinalCondition t mem
     | _ => Except.error "Failed to parse final conditions")
 
+/-- Parse the toml file in '.archsem.toml' format. -/
 def tomlToTestRepr (toml : Lake.Toml.Table) : Except String TestRepr := do
   let arch ← tomlFindStringElse toml `arch "Failed to parse 'arch' field"
   let name ← tomlFindStringElse toml `name "Failed to parse 'name' field"
@@ -210,6 +211,7 @@ def tomlToTestRepr (toml : Lake.Toml.Table) : Except String TestRepr := do
     | _ => Except.error "Failed to parse 'outcome' field"
   pure { arch, name, registers, termCond, memory, finalConditions }
 
+/-- Read and parse a toml file. -/
 def readTomlFile (fname : System.FilePath) : IO Lake.Toml.Table := do
   let input ← IO.FS.readFile fname
   let ictx := Lean.Parser.mkInputContext input fname.toString
@@ -219,6 +221,7 @@ def readTomlFile (fname : System.FilePath) : IO Lake.Toml.Table := do
       let logStr ← Lake.mkMessageLogString log
       throw (IO.Error.userError s!"Failed to parse TOML:\n{logStr}")
 
+/-- Read and parse a file in '.archsem.toml' format. -/
 def readTestFile (fname : System.FilePath) : IO TestRepr := do
   let table ← readTomlFile fname
   match Parse.tomlToTestRepr table with

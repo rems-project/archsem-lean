@@ -1,7 +1,8 @@
-import Out.Defs
 import Sail
 
 open Sail.ArchSem
+
+namespace ArchSem
 
 /--
 Register value generator.
@@ -18,12 +19,26 @@ inductive RegValGen where
   | struct (l : List (String × RegValGen))
 deriving Repr
 
+
+/--
+Thread ID.
+If we are in a context where the number of threads is known then we prefer
+to use `Fin nThreads`. But to avoid having to pass nThreads around everywhere,
+sometimes we just want to use a Nat. And its nice to give this Nat a descriptive
+name like `Tid`.
+-/
+abbrev Tid := Nat
+
+section ArchExtra
+
+variable [Arch]
+
 /--
 ArchExtra is an extension of the Arch typeclass implemented by the lean-sail backend.
 We implement the extra fields and functions for each Architecture we wish to use in ArchSem.
 This allows us to add new features without changing the sail backend.
 -/
-class ArchExtra [Arch] where
+class ArchExtra where
   /-
   Registers must have a total (linear) order. This is necessary for efficiently defining
   equality on an register to value map implementation.
@@ -74,12 +89,6 @@ instance [ArchExtra] : Repr Arch.tlbi        := ArchExtra.tlbi_repr
 instance [ArchExtra] : Repr Arch.exn         := ArchExtra.exn_repr
 instance [ArchExtra] : Repr Arch.sys_reg_id  := ArchExtra.sys_reg_id_repr
 
+end ArchExtra
 
-/--
-Thread ID.
-If we are in a context where the number of threads is known then we prefer
-to use `Fin nThreads`. But to avoid having to pass nThreads around everywhere,
-sometimes we just want to use a Nat. And its nice to give this Nat a descriptive
-name like `Tid`.
--/
-abbrev Tid := Nat
+end ArchSem
