@@ -125,6 +125,7 @@ def bind (m : NEStateM ε σ α) (f : α → NEStateM ε σ β) : NEStateM ε σ
   := fun s => do
     let (s', a) ← m s
     f a s'
+def get : NEStateM ε σ σ := fun s => .pure (s, s)
 
 instance : Functor (NEStateM σ ε) where
   map := map
@@ -134,7 +135,7 @@ instance : Monad (NEStateM ε σ) where
   bind := bind
 
 instance : MonadState σ (NEStateM ε σ) where
-  get s := .pure (s, s)
+  get := get
   set s _ := .pure (s, ())
   modifyGet f s :=
     let (a, s') := f s
@@ -191,6 +192,13 @@ theorem NEStateM.bind_iff {ε σ α β} (s₀ : σ) (s : σ) (b : β) (m : NESta
     : (s, b) ∈ (NEStateM.bind m f s₀).oks ↔ ∃ (s' : σ) (a : α), (s', a) ∈ (m s₀).oks ∧ (s, b) ∈ (f a s').oks
   := by
   have h_base := @NExcept.bind_iff (σ × ε) (σ × α) (σ × β) (s, b) (m s₀) (fun p => f p.snd p.fst)
+  simp [Bind.bind, NEStateM.bind, h_base]
+
+-- TODO: switch everthing over to the new bind_iff
+theorem NEStateM.bind_iff' {ε σ α β} (s₀ : σ) (sb : σ × β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
+    : sb ∈ (NEStateM.bind m f s₀).oks ↔ ∃ (sa : σ × α), sa ∈ (m s₀).oks ∧ sb ∈ (f sa.snd sa.fst).oks
+  := by
+  have h_base := @NExcept.bind_iff (σ × ε) (σ × α) (σ × β) sb (m s₀) (fun p => f p.snd p.fst)
   simp [Bind.bind, NEStateM.bind, h_base]
 
 end Lemmas

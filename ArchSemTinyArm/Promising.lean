@@ -572,6 +572,7 @@ def all_threads_terminated
     (termination : TerminationCondition n)
     (mstate : ModelState n) : Prop :=
   ∀ tid : Fin n, threadTerminated termination mstate tid
+-- TODO: I think I can derive Decidable on the above and remove the code below.
 
 /--
 Check if all threads have terminated according to the termination condition.
@@ -702,7 +703,7 @@ structure EnumerationResult where
 Run a thread until its termination condition, recording the promises it can make,
 the final states it can reach, and any errors it encountered.
 -/
-def enumerateResults (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
+def enumerateResults (n : Nat) (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     (termination : TerminationCondition n) (ts : ThreadState) (mem : PromisingMemory) : EnumerationResult :=
   let base := mem.length
   let st : List Msg × ProjectedModelState := ([], { threadState := ts, mem := mem, iis := IIS.init })
@@ -722,7 +723,7 @@ def enumerateResults (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : S
 /-- Non-deterministically choose a promise that can be made by thread `tid`. -/
 def promiseSelectTid (fuel : Nat) (mstate : ModelState n) (tid : Fin n)
     (isem : SailM Unit) (termination : TerminationCondition n) : NExcept String Msg := do
-  let res := enumerateResults fuel tid mstate.initmem isem termination mstate.threadStates[tid] mstate.mem
+  let res := enumerateResults n fuel tid mstate.initmem isem termination mstate.threadStates[tid] mstate.mem
   if res.outOfFuel then
     NExcept.error "out of fuel"
   else
@@ -786,8 +787,11 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
   let mstate ← get
   /- Find next possible promises or terminating states for each thread. -/
   let executionResults := Vector.ofFn (fun tid =>
-    enumerateResults fuel tid mstate.initmem isem termination mstate.threadStates[tid] mstate.mem)
-  match (← NEStateM.chooseFin 4) with
+    enumerateResults n fuel tid mstate.initmem isem termination mstate.threadStates[tid] mstate.mem)
+  /- Throw any out of fuel errors in execution results. -/
+  if executionResults.toList.any EnumerationResult.outOfFuel then
+    NEStateM.error "Promise first: out of fuel in enumeration"
+  match (← NEStateM.chooseFin 3) with
   | 0 =>
     /- We can make any promise from any thread from those available in the execution results. -/
     let tid ← NEStateM.chooseFin n
@@ -810,12 +814,6 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
     /- Throw all errors in the execution results. -/
     let errs := executionResults.toList.map EnumerationResult.errors |>.flatten
     NEStateM.throwErrors errs
-  | 3 =>
-    /- Throw any out of fuel errors in execution results. -/
-    if executionResults.toList.any EnumerationResult.outOfFuel then
-      NEStateM.error "Promise first: out of fuel in enumeration"
-    else
-      NEStateM.discard
 
 /--
 Convert a promising model (non-deterministic state monad on the promising ModelState)

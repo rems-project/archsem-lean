@@ -74,10 +74,7 @@ ther termination condition.
 def ArchState.has_terminated (termCond : TerminationCondition nThreads)
     (s : ArchState nThreads) : Prop :=
   ∀ tid : Fin nThreads, termCond tid s.regs[tid]
-
--- CR clang: If I implement decidable on `has_terminated` will it automatically
--- get decidable eq? I'm supprised that all propositions are not already
--- DecidableEq. Aren't all propositions of the same type equal?
+deriving Decidable
 
 /--
 The result type returned from an architecture concurrency model after a termination condition.
@@ -87,41 +84,33 @@ inductive ModelResult (nThreads : Nat) (Flag : Type) (termCond : TerminationCond
   | finalState (s : ArchState nThreads) (t : s.has_terminated termCond)
   | flagged (f : Flag)
   | error (msg : String)
+deriving DecidableEq
 
-instance [BEq Flag] : BEq (ModelResult n Flag termCond) where
-  beq
-    | .finalState s₁ _, .finalState s₂ _ => s₁ == s₂
-    | .flagged f₁, .flagged f₂ => f₁ == f₂
-    | .error m₁, .error m₂ => m₁ == m₂
-    | _, _ => false
 
-/---
-To implement DecidableEq for ModelResult, it is insufficient to add
-`deriving DecidableEq` since the inductive type contains `s.has_terminated termCond`
-which is a proposition type and does not itself implement DecidableEq.
--/
-instance [DecidableEq Flag] (n : Nat) (termCond : TerminationCondition n)
-    : DecidableEq (ModelResult n Flag termCond) := by
-   intro r₁ r₂
-   cases r₁ <;> cases r₂
-   case finalState.finalState =>
-     rename_i s₁ _ s₂ _
-     by_cases s₁ = s₂
-     · exact isTrue (by simp; assumption)
-     · exact isFalse (by simp; assumption)
-   case flagged.flagged =>
-     rename_i f₁ f₂
-     simpa using (inferInstance : Decidable (f₁ = f₂))
-   case error.error =>
-     rename_i m₁ m₂
-     simpa using (inferInstance : Decidable (m₁ = m₂))
-   all_goals exact (isFalse (by intro h; contradiction))   
- 
+-- TODO: non-computational model definition.
+
 -- CR clang for thibaut: archsem passed Flag to this type. Lets discuss.
 def ComputationalTerminatingModel :=
   (nThreads : Nat) → (termCond : TerminationCondition nThreads) →
   ArchState nThreads → List (ModelResult nThreads Unit termCond)
 
--- TODO: non-computational model definition.
+def ComputationalTerminatingModel.weaker
+    (m₁ m₂ : ComputationalTerminatingModel) : Prop :=
+  ∀ (nThreads : Nat) (termCond : TerminationCondition nThreads)
+    (init final : ArchState nThreads) (t : final.has_terminated termCond),
+  ∀ r ∈ (m₁ nThreads termCond init),
+    r = ModelResult.finalState final t →
+    r ∈ (m₂ nThreads termCond init)
+
+def ComputationalTerminatingModel.weaker_transitive
+    {a b c : ComputationalTerminatingModel}
+    : (a.weaker b) → (b.weaker c) → (a.weaker c)
+  := by
+  intro h₁ h₂
+  rw [ComputationalTerminatingModel.weaker] at *
+  intro nThreads termCond init final t r h₁' h_eq
+  specialize h₁ nThreads termCond init final t r
+  specialize h₂ nThreads termCond init final t r
+  exact h₂ (h₁ h₁' h_eq) h_eq
 
 end ArchSem.TerminatingModel
