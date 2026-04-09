@@ -102,6 +102,13 @@ def ComputationalTerminatingModel.weaker
     r = ModelResult.finalState final t →
     r ∈ (m₂ nThreads termCond init)
 
+def ComputationalTerminatingModel.weaker_refl {m : ComputationalTerminatingModel}
+    : (m.weaker m)
+  := by
+  simp only [weaker]
+  intros
+  assumption
+
 def ComputationalTerminatingModel.weaker_transitive
     {a b c : ComputationalTerminatingModel}
     : (a.weaker b) → (b.weaker c) → (a.weaker c)

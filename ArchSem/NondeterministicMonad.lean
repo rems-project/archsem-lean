@@ -189,7 +189,7 @@ theorem NExcept.bind_iff {ε α β} (b : β) (m : NExcept ε α) (f : α → NEx
       | tail _ h_in_tail => exact Or.inr (ih.mpr ⟨a, h_in_tail, h_in_ok⟩)
 
 theorem NEStateM.bind_iff {ε σ α β} (s₀ : σ) (s : σ) (b : β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
-    : (s, b) ∈ (NEStateM.bind m f s₀).oks ↔ ∃ (s' : σ) (a : α), (s', a) ∈ (m s₀).oks ∧ (s, b) ∈ (f a s').oks
+    : (s, b) ∈ (Bind.bind m f s₀).oks ↔ ∃ (s' : σ) (a : α), (s', a) ∈ (m s₀).oks ∧ (s, b) ∈ (f a s').oks
   := by
   have h_base := @NExcept.bind_iff (σ × ε) (σ × α) (σ × β) (s, b) (m s₀) (fun p => f p.snd p.fst)
   simp [Bind.bind, NEStateM.bind, h_base]

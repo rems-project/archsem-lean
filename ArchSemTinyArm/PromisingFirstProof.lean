@@ -49,27 +49,31 @@ theorem NEStateM.bind_modify_elim {f : Unit → NEStateM ε σ β} {h : σ → �
     NExcept.pure, NExcept.bind, NExcept.merge
   ]
 
+theorem NEStateM.bind_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β}
+    : m₁ = m₂ → f₁ = f₂ → Bind.bind m₁ f₁ = Bind.bind m₂ f₂
+  := by
+  intro h_m h_f
+  rw [h_m, h_f]
+
+theorem NEStateM.bind_app_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s₁ s₂ : σ}
+    : (m₁ s₁ = m₂ s₂)
+    → (∀ s' ∈ (m₁ s₁).oks, f₁ s'.snd s'.fst = f₂ s'.snd s'.fst)
+    → Bind.bind m₁ f₁ s₁ = Bind.bind m₂ f₂ s₂
+  := by
+  intro h_ms h_f
+  simp only [bind, NEStateM.bind, NExcept.bind]
+  rw [h_ms] at h_f ⊢ 
+  apply congrArg
+  apply List.map_congr_left
+  exact h_f
+
+theorem NEStateM.bind_oks_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s₁ s₂}
+    : m₁ = m₂ → f₁ = f₂ → s₁ = s₂ → (Bind.bind m₁ f₁ s₁).oks = (Bind.bind m₂ f₂ s₂).oks
+  := by
+  intro h_m h_f h_s
+  rw [h_m, h_f, h_s]
+
 namespace ArchSemTinyArm.Promising
-
--- Common simplification bundle for NEStateM/NExcept proof scripts.
-open Lean Elab Tactic Lean.Parser.Tactic
-
-/- TODO: remove
-/-
-TODO: This custom tactic is a bit brute force. Lets make it more precise.
-
-I've taken inspiration from https://github.com/leanprover-community/mathlib4/blob/8f1377de1fe0f57f74d9e3eddb3e1ed2e30a9cf9/Mathlib/Tactic/FieldSimp.lean
-There is supprisingly little written about this online.
--/
-elab "simp_nestatem" loc:(location)? : tactic => do
-  let loc := loc.getD (← `(location| at ⊢))
-  evalTactic (← `(tactic| simp only [
-    pure, bind, get, set, modify, modifyGet,
-    NExcept.pure, NExcept.bind, NExcept.merge,
-    NEStateM.pure, NEStateM.bind, 
-    List.foldr, List.map, List.append_nil
-  ] $loc))
-  -/
 
 theorem run_to_termination_monotonic_fuel
     {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
@@ -103,11 +107,6 @@ theorem run_to_termination_monotonic_fuel
       assumption
 
 
-/-
-CR clang: This proof is made awkward by the fact that
-runToTermination returns a structre marked with noFuel instead
-of using an except...
--/
 theorem run_to_termination_stays_terminated
     {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
     {termination : TerminationCondition nThreads}
@@ -130,28 +129,65 @@ theorem run_to_termination_stays_terminated
     intro h
     simp [runToTermination, pure, NEStateM.pure, NExcept.pure]
   | succ f ih =>
-    rw [runToTermination, runToTermination]
-    simp
-    apply NEStateM.bind_mono_right
-    
-    intro h promises pstate
+    rintro ⟨proms, s, h⟩
     rw [runToTermination] at h ⊢
-    simp only [Bind.bind] at h ⊢
     simp only [NEStateM.bind_iff] at h ⊢
-    simp_nestatem at h ⊢
+    obtain ⟨w₁, u, h_w₁, w₂, w₂', h_w₂, h⟩ := h
+    split at h <;> try contradiction
+    rename_i h_term
+    simp only [NEStateM.bind_modify_elim] at h
+    obtain ⟨proms', s', h⟩ := ih ⟨proms, s, h⟩
+    refine ⟨proms', s', w₁, u, h_w₁, w₂, w₂', h_w₂, ?_⟩
+    simp only [h_term, Bool.false_eq_true, ↓reduceIte]
+    simp only [NEStateM.bind_modify_elim]
+    exact h
 
-    simp only [not_exists, not_and] at ⊢ h
-    simp only [List.mem_cons, Prod.mk.injEq, List.not_mem_nil, or_false, and_imp,
-      forall_eq_apply_imp_iff, forall_eq] at h ⊢
+theorem run_to_termination_eventually_equal
+    {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
+    {termination : TerminationCondition nThreads}
+    {fuel base : Nat} {promises : List Msg} {pstate : ProjectedModelState}
+    : (∀ s ∈ (runToTermination tid initmem isem termination fuel base (promises, pstate)).oks, s.snd)
+     → runToTermination tid initmem isem termination fuel base (promises, pstate)
+     = runToTermination tid initmem isem termination (fuel + 1) base (promises, pstate)
+  := by
+  intro h_term
+  induction fuel generalizing promises pstate with
+  | zero =>
+    simp [runToTermination, pure, NEStateM.pure, NExcept.pure] at h_term
+  | succ f ih =>
+    rw [runToTermination, runToTermination]
+    rw [runToTermination] at h_term
 
-    intro (interp_promises, interp_pstate) () h_interp
-    split <;> simp_nestatem ; try simp
+    apply NEStateM.bind_app_congr <;> try simp
+    intro p₁ s₁ u₁ h_interp
+    simp only [NEStateM.bind_get_elim]
+    split <;> try simp
+    rename_i h_term'
+
+    apply NEStateM.bind_app_congr <;> try simp
+    intro p₂ s₂ u₂ h_mod
     apply ih
-    intro promises' pstate'
-    specialize h promises' pstate' (interp_promises, interp_pstate) () h_interp
-    split at h <;> simp_nestatem at h
-    · contradiction
-    · assumption
+    intro s h
+    apply h_term
+    rw [NEStateM.bind_iff]
+    refine ⟨(p₁, s₁), u₁, h_interp, ?_⟩
+    simp only [NEStateM.bind_get_elim, h_term', Bool.false_eq_true, ↓reduceIte]
+    rw [NEStateM.bind_iff]
+    refine ⟨(p₂, s₂), u₂, h_mod, h⟩
+
+theorem run_to_termination_eventually_equal'
+    {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
+    {termination : TerminationCondition nThreads}
+    {fuel base : Nat} {promises : List Msg} {pstate : ProjectedModelState}
+    : (∀ (p : List Msg) (s : ProjectedModelState),
+        ((p, s), false) ∉ (runToTermination tid initmem isem termination fuel base (promises, pstate)).oks)
+     → runToTermination tid initmem isem termination fuel base (promises, pstate)
+     = runToTermination tid initmem isem termination (fuel + 1) base (promises, pstate)
+  := by
+  intro h
+  apply run_to_termination_eventually_equal
+  simp [h]
+
 
 theorem enumerate_results_stays_terminated {nThreads : Nat}
     {fuel : Nat} {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
@@ -189,7 +225,7 @@ theorem enumerate_result_promises_monotonic_fuel {nThreads : Nat}
     case right =>
       exact run_to_termination_stays_terminated h_fuel_remains
 
-theorem enumerate_results_eual {nThreads : Nat}
+theorem enumerate_results_eventually_eual {nThreads : Nat}
     {fuel : Nat} {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
     {termCond : TerminationCondition nThreads} {ts : ThreadState} {mem : PromisingMemory}
     : ((enumerateResults nThreads fuel tid initmem isem termCond ts mem).outOfFuel = false) →
@@ -197,8 +233,10 @@ theorem enumerate_results_eual {nThreads : Nat}
       = (enumerateResults nThreads (fuel + 1) tid initmem isem termCond ts mem)
   := by
   intro h_fuel
-  simp only [enumerateResults]
-  sorry
+  simp only [enumerateResults] at h_fuel ⊢
+  simp [List.any_eq_false] at h_fuel
+  have := run_to_termination_eventually_equal' h_fuel
+  rw [this]
 
 theorem promise_select_tid_monotonic_fuel
     {fuel : Nat} {mstate : ModelState nThreads} {tid : Fin nThreads} {isem : SailM Unit}
@@ -266,7 +304,7 @@ theorem naive_runtime_monotonic_fuel {fuel : Nat} {isem : SailM Unit} {nThreads 
 
     apply NEStateM.bind_mono_right
     intro (s₁, s₂) h_get
-    
+
     split
     case isFalse h_term =>
       apply NEStateM.bind_mono
@@ -280,17 +318,17 @@ theorem promise_first_runtime_monotonic_fuel {fuel : Nat} {isem : SailM Unit} {n
     : ∀ r ∈ (runPromiseFirst fuel isem nThreads termCond pState).oks,
         r ∈ (runPromiseFirst (fuel + 1) isem nThreads termCond pState).oks
   := by
-  intro (promises, mstate) h
+  intro (promises, mstate)
   induction fuel generalizing pState with
   | zero =>
+    intro h
     rw [runPromiseFirst] at h
     contradiction
   | succ f ih =>
-    rw [runPromiseFirst] at h ⊢
-    simp only [Nat.reduceBeqDiff, Bool.false_eq_true, ↓reduceIte] at h ⊢
-    simp only [Bind.bind, NEStateM.bind_iff] at h ⊢
-    rcases h with ⟨s₁, s_enum, h_get, h⟩
-    refine ⟨s₁, s_enum, h_get, ?_⟩
+    rw [runPromiseFirst, runPromiseFirst]
+    simp only [Nat.reduceBeqDiff, Bool.false_eq_true, ↓reduceIte]
+    simp only [NEStateM.bind_get_elim]
+    intro h
     split at h <;> try contradiction
     split <;> rename_i h_fuel h_fuel'
     <;> simp only [Nat.add_one_sub_one, Fin.getElem_fin, Vector.any_toList, Vector.any_eq_true,
@@ -302,40 +340,29 @@ theorem promise_first_runtime_monotonic_fuel {fuel : Nat} {isem : SailM Unit} {n
       apply enumerate_results_stays_terminated
       simp [h_fuel]
     case isFalse =>
-      simp only [NEStateM.bind_iff] at h ⊢
-      rcases h with ⟨s₁, u, h_u, s_match, c, h_c, h⟩
-      refine ⟨s₁, u, h_u, s_match, c, h_c, ?_⟩
-      split at h
-      case h_1 => -- make promise
-        simp only [NEStateM.bind_iff] at h ⊢
-        rcases h with ⟨s₁, tid, h_choose_tid, s₂, msg, h_choose_ev, s₃, u, h_mod, h⟩
-        refine ⟨s₁, tid, h_choose_tid, s₂, msg, ?_⟩
-        simp only [NEStateM.choose, NExcept.choose] at h_choose_ev ⊢
-        simp only [Nat.add_one_sub_one, List.mem_map, Prod.mk.injEq, exists_eq_right_right] at h_choose_ev ⊢
-        simp only [Fin.getElem_fin, Vector.getElem_ofFn, Fin.eta] at h_choose_ev ⊢
-        specialize h_fuel tid.val tid.isLt
-        -- TODO: maybe I should make theorem arguments implicit
-        have := enumerate_result_promises_monotonic_fuel _ h_choose_ev.left h_fuel
-        exact ⟨⟨this.left, h_choose_ev.right⟩, s₃, u, h_mod, ih h⟩
-      case h_2 => -- terminate
-        simp only [NEStateM.bind_iff] at h ⊢
-        rcases h with ⟨s₁, threads, h_enumerate, h⟩
-        -- TODO: Here I need to use enumerate_result_final_states_equal
-        -- the order matters because we use mapM
-        -- Or maybe just write theorem for enumerate_results_equal
-        have := enumerate_result_promises_monotonic_fuel
-        refine ⟨s₁, threads, h_enumerate, ?_⟩
-      case h_3 => -- 
-      
-    case isFalse h_term =>
-      simp only [h_term, ↓reduceDIte]
-      rw [NEStateM.bind_iff] at h ⊢
-      rcases h with ⟨s₃, u, h_step, h_recurse⟩
-      have h_l := run_step_monotonic_fuel (f + 1) isem termCond s₁ (s₃, u) h_step
-      have h_r := ih s₃ h_recurse
-      exact ⟨s₃, u, h_l, h_r⟩
-    case isTrue h_term =>
-      simp [h_term, h]
+      have h_enum_eq (tid : Fin nThreads) := enumerate_results_eventually_eual (h_fuel tid.val tid.isLt)
+      revert h
+      apply NEStateM.bind_mono_right
+      intro w₁ h_w₁
+      apply NEStateM.bind_mono_right
+      intro w₂ h_w₂
+
+      match w₂.snd with
+      | 0 => -- make promise
+        simp only [Nat.add_one_sub_one, Fin.getElem_fin, Vector.getElem_ofFn, Fin.eta]
+        apply NEStateM.bind_mono_right
+        intro w₃ h_w₃
+        apply NEStateM.bind_mono
+        · simp [h_enum_eq]
+        · intro w₄ h_w₄
+          simp [NEStateM.bind_modify_elim]
+          apply ih
+      | 1 => -- terminate
+        simp [h_enum_eq]
+      | 2 => 
+        simp [h_enum_eq]
+
+-- TODO: remove lots of repetition from here onwards:
 
 theorem naive_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
     : (createNaiveModel isem fuel).weaker (createNaiveModel isem (fuel + 1))
@@ -350,9 +377,22 @@ theorem naive_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
   apply naive_runtime_monotonic_fuel
   exact h
 
+theorem promise_first_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
+    : (createPromiseFirstModel isem fuel).weaker (createPromiseFirstModel isem (fuel + 1))
+  := by
+  rw [ComputationalTerminatingModel.weaker]
+  intro nThreads termCond init final t r h r_eq
+  rw [createPromiseFirstModel, promisingRuntimeToModel, r_eq] at h ⊢
+  simp only [List.mem_append, List.mem_map, reduceCtorEq, and_false, exists_false, false_or] at h ⊢
+  simp only [List.mem_eraseDups, List.mem_map] at h ⊢
+  rcases h with ⟨r, h, h_eq⟩
+  refine ⟨r, ?_, h_eq⟩
+  apply promise_first_runtime_monotonic_fuel
+  exact h
+
 theorem naive_monotonic_fuel_full {isem : SailM Unit} {fuel : Nat}
     : ∀ fuel' ≥ fuel,
-    (createNaiveModel isem fuel).weaker (createNaiveModel isem (fuel' + 1))
+    (createNaiveModel isem fuel).weaker (createNaiveModel isem fuel')
   := by
   intro fuel' h
   let d := fuel' - fuel
@@ -360,8 +400,22 @@ theorem naive_monotonic_fuel_full {isem : SailM Unit} {fuel : Nat}
   rw [h_fuel'_eq]
   induction d with
   | zero =>
-    exact naive_model_monotonic_fuel
+    apply ComputationalTerminatingModel.weaker_refl
   | succ k ih =>
     exact ComputationalTerminatingModel.weaker_transitive ih naive_model_monotonic_fuel
+
+theorem promise_first_monotonic_fuel_full {isem : SailM Unit} {fuel : Nat}
+    : ∀ fuel' ≥ fuel,
+    (createPromiseFirstModel isem fuel).weaker (createPromiseFirstModel isem fuel')
+  := by
+  intro fuel' h
+  let d := fuel' - fuel
+  have h_fuel'_eq : fuel' = fuel + d := by omega
+  rw [h_fuel'_eq]
+  induction d with
+  | zero =>
+    apply ComputationalTerminatingModel.weaker_refl
+  | succ k ih =>
+    exact ComputationalTerminatingModel.weaker_transitive ih promise_first_model_monotonic_fuel
 
 end ArchSemTinyArm.Promising
