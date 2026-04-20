@@ -84,6 +84,27 @@ def mapState (f : σ → σ') (r : NExcept (σ × ε) (σ × α)) : NExcept (σ'
   { oks := r.oks.map (fun (s, a) => (f s, a))
   , errors := r.errors.map (fun (s, e) => (f s, e)) }
 
+theorem bind_iff {ε α β} (b : β) (m : NExcept ε α) (f : α → NExcept ε β)
+     : b ∈ (NExcept.bind m f).oks ↔ ∃ (a : α), a ∈ m.oks ∧ b ∈ (f a).oks
+  := by
+  simp only [NExcept.bind]
+  induction m.oks with
+  | nil =>
+    apply Iff.intro
+    all_goals simp
+  | cons a tail ih =>
+    simp only [NExcept.merge, List.foldr, List.map, List.mem_append]
+    apply Iff.intro
+    case mp =>
+      rintro (h | h)
+      · simp [h]
+      · simp [ih.mp h]
+    case mpr =>
+      rintro ⟨a, h_in, h_in_ok⟩
+      cases h_in with
+      | head => exact Or.inl h_in_ok
+      | tail _ h_in_tail => exact Or.inr (ih.mpr ⟨a, h_in_tail, h_in_ok⟩)
+
 end NExcept
 
 
@@ -163,44 +184,78 @@ def discardNone : Option α → NEStateM σ ε α
   | some a => pure a
   | none => discard
 
-end NEStateM
-
-section Lemmas
-
-theorem NExcept.bind_iff {ε α β} (b : β) (m : NExcept ε α) (f : α → NExcept ε β)
-     : b ∈ (NExcept.bind m f).oks ↔ ∃ (a : α), a ∈ m.oks ∧ b ∈ (f a).oks
-  := by
-  simp only [NExcept.bind]
-  induction m.oks with
-  | nil =>
-    apply Iff.intro
-    all_goals simp
-  | cons a tail ih =>
-    simp only [NExcept.merge, List.foldr, List.map, List.mem_append]
-    apply Iff.intro
-    case mp =>
-      rintro (h | h)
-      · simp [h]
-      · simp [ih.mp h]
-    case mpr =>
-      rintro ⟨a, h_in, h_in_ok⟩
-      cases h_in with
-      | head => exact Or.inl h_in_ok
-      | tail _ h_in_tail => exact Or.inr (ih.mpr ⟨a, h_in_tail, h_in_ok⟩)
-
-theorem NEStateM.bind_iff {ε σ α β} (s₀ : σ) (s : σ) (b : β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
+theorem bind_iff {ε σ α β} (s₀ : σ) (s : σ) (b : β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
     : (s, b) ∈ (Bind.bind m f s₀).oks ↔ ∃ (s' : σ) (a : α), (s', a) ∈ (m s₀).oks ∧ (s, b) ∈ (f a s').oks
   := by
   have h_base := @NExcept.bind_iff (σ × ε) (σ × α) (σ × β) (s, b) (m s₀) (fun p => f p.snd p.fst)
   simp [Bind.bind, NEStateM.bind, h_base]
 
--- TODO: switch everthing over to the new bind_iff
-theorem NEStateM.bind_iff' {ε σ α β} (s₀ : σ) (sb : σ × β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
-    : sb ∈ (NEStateM.bind m f s₀).oks ↔ ∃ (sa : σ × α), sa ∈ (m s₀).oks ∧ sb ∈ (f sa.snd sa.fst).oks
+theorem bind_mono {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s : σ} {sb : σ × β}
+    : (∀ sa ∈ (m₁ s).oks, sa ∈ (m₂ s).oks)
+    → (∀ sa ∈ (m₁ s).oks, sb ∈ (f₁ sa.snd sa.fst).oks → sb ∈ (f₂ sa.snd sa.fst).oks)
+    → (sb ∈ (Bind.bind m₁ f₁ s).oks → sb ∈ (Bind.bind m₂ f₂ s).oks)
   := by
-  have h_base := @NExcept.bind_iff (σ × ε) (σ × α) (σ × β) sb (m s₀) (fun p => f p.snd p.fst)
-  simp [Bind.bind, NEStateM.bind, h_base]
+  intro h_m h_f h
+  rw [NEStateM.bind_iff] at h ⊢
+  obtain ⟨s, a, h_sa, h⟩ := h
+  refine ⟨s, a, h_m (s, a) h_sa, h_f (s, a) h_sa h⟩
 
-end Lemmas
+theorem bind_mono_right {m : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s : σ} {sb : σ × β}
+    : (∀ sa ∈ (m s).oks, sb ∈ (f₁ sa.snd sa.fst).oks → sb ∈ (f₂ sa.snd sa.fst).oks)
+    → (sb ∈ (Bind.bind m f₁ s).oks → sb ∈ (Bind.bind m f₂ s).oks)
+  := by
+  intro h_f
+  exact NEStateM.bind_mono (by simp) h_f
+
+theorem bind_mono_left {m₁ m₂ : NEStateM ε σ α} {f : α → NEStateM ε σ β} {s : σ} {sb : σ × β}
+    : (∀ sa ∈ (m₁ s).oks, sa ∈ (m₂ s).oks)
+    → (sb ∈ (Bind.bind m₁ f s).oks → sb ∈ (Bind.bind m₂ f s).oks)
+  := by
+  intro h_m
+  exact NEStateM.bind_mono h_m (by simp)
+
+theorem bind_get_elim {f : σ → NEStateM ε σ β} {s : σ}
+    : Bind.bind get f s = f s s
+  := by
+  simp [
+    Bind.bind, get,
+    NEStateM.get, NEStateM.bind,
+    NExcept.pure, NExcept.bind, NExcept.merge
+  ]
+
+theorem bind_modify_elim {f : Unit → NEStateM ε σ β} {h : σ → σ} {s : σ}
+    : Bind.bind (modify h) f s = f () (h s)
+  := by
+  simp [
+    Bind.bind, modify, modifyGet,
+    NEStateM.bind,
+    NExcept.pure, NExcept.bind, NExcept.merge
+  ]
+
+theorem bind_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β}
+    : m₁ = m₂ → f₁ = f₂ → Bind.bind m₁ f₁ = Bind.bind m₂ f₂
+  := by
+  intro h_m h_f
+  rw [h_m, h_f]
+
+theorem bind_app_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s₁ s₂ : σ}
+    : (m₁ s₁ = m₂ s₂)
+    → (∀ s' ∈ (m₁ s₁).oks, f₁ s'.snd s'.fst = f₂ s'.snd s'.fst)
+    → Bind.bind m₁ f₁ s₁ = Bind.bind m₂ f₂ s₂
+  := by
+  intro h_ms h_f
+  simp only [Bind.bind, NEStateM.bind, NExcept.bind]
+  rw [h_ms] at h_f ⊢
+  apply congrArg
+  apply List.map_congr_left
+  exact h_f
+
+theorem bind_oks_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s₁ s₂}
+    : m₁ = m₂ → f₁ = f₂ → s₁ = s₂ → (Bind.bind m₁ f₁ s₁).oks = (Bind.bind m₂ f₂ s₂).oks
+  := by
+  intro h_m h_f h_s
+  rw [h_m, h_f, h_s]
+
+end NEStateM
 
 end ArchSem.NondeterministicMonad

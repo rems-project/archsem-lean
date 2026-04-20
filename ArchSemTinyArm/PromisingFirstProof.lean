@@ -6,73 +6,6 @@ open ArchSem.NondeterministicMonad
 open ArchSem.TerminatingModel
 open ArchSemTinyArm.Promising
 
-theorem NEStateM.bind_mono {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s : σ} {sb : σ × β}
-    : (∀ sa ∈ (m₁ s).oks, sa ∈ (m₂ s).oks)
-    → (∀ sa ∈ (m₁ s).oks, sb ∈ (f₁ sa.snd sa.fst).oks → sb ∈ (f₂ sa.snd sa.fst).oks)
-    → (sb ∈ (Bind.bind m₁ f₁ s).oks → sb ∈ (Bind.bind m₂ f₂ s).oks)
-  := by
-  intro h_m h_f h
-  simp only [Bind.bind] at h ⊢
-  rw [NEStateM.bind_iff'] at h ⊢
-  obtain ⟨sa, h_sa, h⟩ := h
-  refine ⟨sa, h_m sa h_sa, h_f sa h_sa h⟩
-
-theorem NEStateM.bind_mono_right {m : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s : σ} {sb : σ × β}
-    : (∀ sa ∈ (m s).oks, sb ∈ (f₁ sa.snd sa.fst).oks → sb ∈ (f₂ sa.snd sa.fst).oks)
-    → (sb ∈ (Bind.bind m f₁ s).oks → sb ∈ (Bind.bind m f₂ s).oks)
-  := by
-  intro h_f
-  exact NEStateM.bind_mono (by simp) h_f
-
-theorem NEStateM.bind_mono_left {m₁ m₂ : NEStateM ε σ α} {f : α → NEStateM ε σ β} {s : σ} {sb : σ × β}
-    : (∀ sa ∈ (m₁ s).oks, sa ∈ (m₂ s).oks)
-    → (sb ∈ (Bind.bind m₁ f s).oks → sb ∈ (Bind.bind m₂ f s).oks)
-  := by
-  intro h_m
-  exact NEStateM.bind_mono h_m (by simp)
-
-theorem NEStateM.bind_get_elim {f : σ → NEStateM ε σ β} {s : σ}
-    : Bind.bind get f s = f s s
-  := by
-  simp [
-    bind, get,
-    NEStateM.get, NEStateM.bind,
-    NExcept.pure, NExcept.bind, NExcept.merge
-  ]
-
-theorem NEStateM.bind_modify_elim {f : Unit → NEStateM ε σ β} {h : σ → σ} {s : σ}
-    : Bind.bind (modify h) f s = f () (h s)
-  := by
-  simp [
-    bind, modify, modifyGet,
-    NEStateM.bind, 
-    NExcept.pure, NExcept.bind, NExcept.merge
-  ]
-
-theorem NEStateM.bind_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β}
-    : m₁ = m₂ → f₁ = f₂ → Bind.bind m₁ f₁ = Bind.bind m₂ f₂
-  := by
-  intro h_m h_f
-  rw [h_m, h_f]
-
-theorem NEStateM.bind_app_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s₁ s₂ : σ}
-    : (m₁ s₁ = m₂ s₂)
-    → (∀ s' ∈ (m₁ s₁).oks, f₁ s'.snd s'.fst = f₂ s'.snd s'.fst)
-    → Bind.bind m₁ f₁ s₁ = Bind.bind m₂ f₂ s₂
-  := by
-  intro h_ms h_f
-  simp only [bind, NEStateM.bind, NExcept.bind]
-  rw [h_ms] at h_f ⊢ 
-  apply congrArg
-  apply List.map_congr_left
-  exact h_f
-
-theorem NEStateM.bind_oks_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s₁ s₂}
-    : m₁ = m₂ → f₁ = f₂ → s₁ = s₂ → (Bind.bind m₁ f₁ s₁).oks = (Bind.bind m₂ f₂ s₂).oks
-  := by
-  intro h_m h_f h_s
-  rw [h_m, h_f, h_s]
-
 namespace ArchSemTinyArm.Promising
 
 theorem run_to_termination_monotonic_fuel
@@ -95,7 +28,7 @@ theorem run_to_termination_monotonic_fuel
     rw [runToTermination, runToTermination]
     apply NEStateM.bind_mono_right
     intro (s', a') h_interp
-    simp only [NEStateM.bind_get_elim]
+    simp only [get, NEStateM.bind_get_elim]
     intro h
     split at h
     case isFalse h_termination =>
@@ -160,7 +93,7 @@ theorem run_to_termination_eventually_equal
 
     apply NEStateM.bind_app_congr <;> try simp
     intro p₁ s₁ u₁ h_interp
-    simp only [NEStateM.bind_get_elim]
+    simp only [get, NEStateM.bind_get_elim]
     split <;> try simp
     rename_i h_term'
 
@@ -171,7 +104,7 @@ theorem run_to_termination_eventually_equal
     apply h_term
     rw [NEStateM.bind_iff]
     refine ⟨(p₁, s₁), u₁, h_interp, ?_⟩
-    simp only [NEStateM.bind_get_elim, h_term', Bool.false_eq_true, ↓reduceIte]
+    simp only [get, NEStateM.bind_get_elim, h_term', Bool.false_eq_true, ↓reduceIte]
     rw [NEStateM.bind_iff]
     refine ⟨(p₂, s₂), u₂, h_mod, h⟩
 
@@ -277,7 +210,7 @@ theorem run_step_monotonic_fuel
 
   match choice with
   | 0 =>
-    simp only [NEStateM.bind_get_elim]
+    simp only [get, NEStateM.bind_get_elim]
     apply NEStateM.bind_mono_left
     simp only [liftM, monadLift, MonadLift.monadLift]
     simp only [List.mem_map, forall_exists_index, and_imp, forall_apply_eq_imp_iff₂, Prod.mk.injEq,
@@ -327,7 +260,7 @@ theorem promise_first_runtime_monotonic_fuel {fuel : Nat} {isem : SailM Unit} {n
   | succ f ih =>
     rw [runPromiseFirst, runPromiseFirst]
     simp only [Nat.reduceBeqDiff, Bool.false_eq_true, ↓reduceIte]
-    simp only [NEStateM.bind_get_elim]
+    simp only [get, NEStateM.bind_get_elim]
     intro h
     split at h <;> try contradiction
     split <;> rename_i h_fuel h_fuel'
