@@ -21,6 +21,9 @@ An architecture memory map. We assume bytes of 8-bits indexed by a bit vector.
 def MemoryMap := Std.ExtTreeMap Address (BitVec 8)
 deriving DecidableEq
 
+instance : Hashable MemoryMap where
+  hash mem := mem.foldl (fun acc addr value => acc.xor (hash (addr, value))) 0
+
 namespace MemoryMap
 
 def empty : MemoryMap := Std.ExtTreeMap.empty
@@ -50,6 +53,9 @@ end MemoryMap
 def RegisterMap [ArchExtra] := Std.ExtDTreeMap Arch.register Arch.register_type
 deriving DecidableEq
 
+instance : Hashable RegisterMap where
+  hash regs := regs.foldl (fun acc addr value => acc.xor (hash (addr, value))) 0
+
 def RegisterMap.empty : RegisterMap := Std.ExtDTreeMap.empty
 
 /--
@@ -60,12 +66,15 @@ The tid and associated register map is passed for each thread.
 -/
 abbrev TerminationCondition (nThreads : Nat) := Fin nThreads → RegisterMap → Bool
 
+instance [Hashable α] : Hashable (Vector α n) where
+  hash vec := hash vec.toArray
+
 /-- The generalized inter-instruction architecture state.  -/
 structure ArchState (nThreads : Nat) where
   memory : MemoryMap
   addressSpace : Arch.addr_space
   regs : Vector RegisterMap nThreads
-deriving DecidableEq
+deriving DecidableEq, Hashable
 
 /--
 A decidable proposition as to weather an architecture state satisfies
@@ -84,7 +93,7 @@ inductive ModelResult (nThreads : Nat) (Flag : Type) (termCond : TerminationCond
   | finalState (s : ArchState nThreads) (t : s.has_terminated termCond)
   | flagged (f : Flag)
   | error (msg : String)
-deriving DecidableEq
+deriving DecidableEq, Hashable
 
 
 -- TODO: non-computational model definition.

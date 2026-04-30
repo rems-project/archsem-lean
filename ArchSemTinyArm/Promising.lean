@@ -836,7 +836,7 @@ def promisingRuntimeToModel
         let archState := final.state.toArchState
         let proof := terminated_model_state_to_arch_state final.proof
         ModelResult.finalState archState proof))
-    errors ++ results.eraseDups
+    errors ++ (Std.HashSet.ofList results).toList
 
 /--
 The naive model is more obviously correct than the promiseFirstModel, but

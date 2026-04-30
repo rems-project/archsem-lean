@@ -53,6 +53,10 @@ class ArchExtra where
   /- Comparisons are required for checking final states in litmus tests. -/
   register_type_deq (reg : Arch.register) : DecidableEq (Arch.register_type reg)
   addr_space_deq : DecidableEq Arch.addr_space
+  /- Hashable types. -/
+  addr_space_hashable : Hashable Arch.addr_space
+  register_hashable : Hashable Arch.register
+  register_types_hashable (reg : Arch.register) : Hashable (Arch.register_type reg)
   /- Registers are named by string in the litmus test format. -/
   register_of_string : String → Except String Arch.register
   register_type_of_gen (reg : Arch.register) : RegValGen → Except String (Arch.register_type reg)
@@ -77,6 +81,9 @@ instance [ArchExtra] : Std.LawfulEqCmp ArchExtra.register_ord.compare := ArchExt
 instance [ArchExtra] : Inhabited Arch.addr_space  := ArchExtra.addr_space_inhabited
 instance [ArchExtra] (reg : Arch.register) : DecidableEq (Arch.register_type reg) := ArchExtra.register_type_deq reg
 instance [ArchExtra] : DecidableEq Arch.addr_space  := ArchExtra.addr_space_deq
+instance [ArchExtra] : Hashable Arch.addr_space := ArchExtra.addr_space_hashable
+instance [ArchExtra] : Hashable Arch.register := ArchExtra.register_hashable
+instance [ArchExtra] (reg : Arch.register) : Hashable (Arch.register_type reg) := ArchExtra.register_types_hashable reg
 instance [ArchExtra] : Repr Arch.addr_space  := ArchExtra.addr_space_repr
 instance [ArchExtra] : Repr Arch.register    := ArchExtra.register_repr
 instance [ArchExtra] (reg : Arch.register) : Repr (Arch.register_type reg) := ArchExtra.register_type_repr reg

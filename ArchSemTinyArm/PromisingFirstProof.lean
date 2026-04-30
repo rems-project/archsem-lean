@@ -304,7 +304,8 @@ theorem naive_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
   intro nThreads termCond init final t r h r_eq
   rw [createNaiveModel, promisingRuntimeToModel, r_eq] at h ⊢
   simp only [List.mem_append, List.mem_map, reduceCtorEq, and_false, exists_false, false_or] at h ⊢
-  simp only [List.mem_eraseDups, List.mem_map] at h ⊢
+  simp only [Std.HashSet.mem_toList, Std.HashSet.mem_ofList] at h ⊢
+  simp only [List.contains_eq_mem, List.mem_map, decide_eq_true_eq] at h ⊢
   rcases h with ⟨r, h, h_eq⟩
   refine ⟨r, ?_, h_eq⟩
   apply naive_runtime_monotonic_fuel
@@ -317,7 +318,8 @@ theorem promise_first_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
   intro nThreads termCond init final t r h r_eq
   rw [createPromiseFirstModel, promisingRuntimeToModel, r_eq] at h ⊢
   simp only [List.mem_append, List.mem_map, reduceCtorEq, and_false, exists_false, false_or] at h ⊢
-  simp only [List.mem_eraseDups, List.mem_map] at h ⊢
+  simp only [Std.HashSet.mem_toList, Std.HashSet.mem_ofList] at h ⊢
+  simp only [List.contains_eq_mem, List.mem_map, decide_eq_true_eq] at h ⊢
   rcases h with ⟨r, h, h_eq⟩
   refine ⟨r, ?_, h_eq⟩
   apply promise_first_runtime_monotonic_fuel

@@ -1,6 +1,6 @@
 name = "archsem-lean"
 version = "0.1.0"
-defaultTargets = ["ArchSem", "ArchSemTinyArm"]
+defaultTargets = ["ArchSem", "ArchSemTinyArm", "archsem"]
 
 [[require]]
 name = "sail_tiny_arm"
