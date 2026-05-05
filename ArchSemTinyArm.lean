@@ -1,1 +1,7 @@
-import ArchSemTinyArm.Basic
+import ArchSemTinyArm.Defs
+import ArchSemTinyArm.Promising
+import ArchSemTinyArm.PromisingFirstProof
+import ArchSemTinyArm.PromisingTest
+import ArchSemTinyArm.Sequential
+import ArchSemTinyArm.SequentialTest
+import ArchSemTinyArm.Test
