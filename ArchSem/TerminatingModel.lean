@@ -98,7 +98,6 @@ deriving DecidableEq, Hashable
 
 -- TODO: non-computational model definition.
 
--- CR clang for thibaut: archsem passed Flag to this type. Lets discuss.
 def ComputationalTerminatingModel :=
   (nThreads : Nat) → (termCond : TerminationCondition nThreads) →
   ArchState nThreads → List (ModelResult nThreads Unit termCond)

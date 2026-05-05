@@ -713,11 +713,8 @@ def enumerateResults (n : Nat) (fuel : Nat) (tid : Fin n) (initmem : InitialMem)
   let promises := (successStates.map Prod.fst).flatten.eraseDups
   let finalStates := successStates.filterMap (fun (newProms, st) =>
     if newProms.isEmpty then some st.threadState else none)
-  -- CR clang for thibaut: Why in archsem are errors filtered here by empty promising list?
-  -- This was causing me confusion while debugging.
   let errors := res.errors.filterMap (fun ((newProms, _), errMsg) =>
     if newProms.isEmpty then some errMsg else none)
-  --let errors := res.errors.map Prod.snd
   { promises := promises, finalStates := finalStates, errors := errors, outOfFuel := outOfFuel }
 
 /-- Non-deterministically choose a promise that can be made by thread `tid`. -/
