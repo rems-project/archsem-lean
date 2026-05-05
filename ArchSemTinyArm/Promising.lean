@@ -572,32 +572,7 @@ def all_threads_terminated
     (termination : TerminationCondition n)
     (mstate : ModelState n) : Prop :=
   ∀ tid : Fin n, threadTerminated termination mstate tid
--- TODO: I think I can derive Decidable on the above and remove the code below.
-
-/--
-Check if all threads have terminated according to the termination condition.
--/
-def allThreadsTerminated
-    (termination : TerminationCondition n)
-    (mstate : ModelState n) : Bool :=
-  (List.finRange n).all (threadTerminated termination mstate)
-
-/--
-We can decidably construct a proof for an `all_threads_terminated` condition
-by using the `allThreadsTerminated` routine.
--/
-instance : Decidable (all_threads_terminated termination mstate) :=
-  if h : allThreadsTerminated termination mstate then
-    isTrue (by
-      simp [allThreadsTerminated] at *
-      exact h
-    )
-  else
-    isFalse (by
-      simp [allThreadsTerminated] at *
-      simp [all_threads_terminated]
-      exact h
-    )
+deriving Decidable
 
 /--
 Given a proof that the promising model state (ModelState) is terminated,
@@ -692,7 +667,6 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
       modify (fun s => (s.fst, { s.snd with iis := IIS.init }))
       runToTermination tid initmem isem termination fuel base
 
--- TODO: Why am I using snake case here?
 structure EnumerationResult where
   promises : List Msg
   finalStates : List ThreadState

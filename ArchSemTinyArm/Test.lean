@@ -9,8 +9,6 @@ open ArchSemTinyArm
 This file contains regression tests for all TinyArm concurrency models.
 -/
 
--- TODO: add some more tests here for regression. (maybe diy 6-cycle 2-thread tests?)
-
 namespace ArchSemTinyArm.Promising.Test
 
 def fuel : Nat := 100
