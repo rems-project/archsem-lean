@@ -122,19 +122,13 @@ instance : ArchExtra := by
     { register_of_string := registerOfString
     , register_type_of_gen := registerTypeOfGen
     , .. }
-  -- Solve trivial cases
-  all_goals try infer_instance
-  -- Solve the easy cases of the form `TypeClass α`.
-  all_goals
-    try
-    (conv => rhs ; whnf)
-    infer_instance
-  -- Solve the cases parameterized by Arch.register.
-  all_goals
-    try
-    intro
-    (conv => rhs ; whnf)
-    split <;> infer_instance
+  all_goals try first
+    -- Solve trivial cases
+    | infer_instance
+    -- Solve the easy cases of the form `TypeClass α`.
+    | (conv => rhs ; whnf) ; infer_instance
+    -- Solve the cases parameterized by Arch.register.
+    | intro ; (conv => rhs ; whnf) ; split <;> infer_instance
 
 def sailTinyArmIsem := Out.Functions.fetch_and_execute ()
 
