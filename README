@@ -1,1 +1,11 @@
-WORK IN PROGRESS
+ArchSem-Lean
+------------
+
+This is a Lean port of ArchSem-Rocq [1], a framework for formally
+defining the specification of multi-threaded computer architectures
+in a way suitable for formal verification or execution on small litmus
+tests. The ISA semantics are generated from a Sail [2] specification,
+memory concurrency models are implemented in this repository.
+
+[1] https://github.com/rems-project/archsem
+[2] https://github.com/rems-project/sail
