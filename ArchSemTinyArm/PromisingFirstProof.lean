@@ -1,3 +1,7 @@
+-- SPDX-FileCopyrightText: 2026 Christopher Lang
+--
+-- SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
+
 import Init.Data.List.Lemmas
 import ArchSem.TerminatingModel
 import ArchSemTinyArm.Promising
@@ -325,7 +329,7 @@ theorem promise_first_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
   apply promise_first_runtime_monotonic_fuel
   exact h
 
-theorem naive_monotonic_fuel_full {isem : SailM Unit} {fuel : Nat}
+theorem naive_promising_monotonic_fuel_full {isem : SailM Unit} {fuel : Nat}
     : ∀ fuel' ≥ fuel,
     (createNaiveModel isem fuel).weaker (createNaiveModel isem fuel')
   := by

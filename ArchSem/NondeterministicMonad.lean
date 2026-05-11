@@ -1,3 +1,7 @@
+-- SPDX-FileCopyrightText: 2026 Christopher Lang
+--
+-- SPDX-License-Identifier: Apache-2.0 OR BSD-3-Clause
+
 /-!
 This file provies monad types to help with non-deterministic state transitions
 used in various concurrency models.
