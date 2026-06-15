@@ -4,9 +4,10 @@ defaultTargets = ["ArchSem", "ArchSemTinyArm", "archsem"]
 
 [[require]]
 name = "sail_tiny_arm"
-git = "https://github.com/Chris-F5/sail-tiny-arm"
-rev = "archsem-lean"
-subDir = "lean-snapshot/out"
+git = "https://github.com/rems-project/sail-tiny-arm-lean"
+# git = "https://github.com/Chris-F5/sail-tiny-arm"
+# rev = "archsem-lean"
+# subDir = "lean-snapshot/out"
 
 [[require]]
 name = "cli"
