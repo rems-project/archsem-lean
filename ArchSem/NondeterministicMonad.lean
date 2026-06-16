@@ -2,10 +2,11 @@
 --
 -- SPDX-License-Identifier: Apache-2.0 OR BSD-2-Clause
 
+import ArchSem.ListSet
+
 /-!
 This file provies monad types to help with non-deterministic state transitions
 used in various concurrency models.
-This file is an analogous of archsem-rocq's `Common/Exec.v`.
 -/
 
 namespace ArchSem.NondeterministicMonad
@@ -20,45 +21,46 @@ current ok states and error states respectivly.
 A common usecase is to specialize with `NExcept (σ × ε) (σ × α)` where
 `σ` represents a model state, and `α` a return value.
 We have some helper functions for working on a `NExcept` of this form.
-
-The order of the lists does not matter (TODO: implement equality instances).
 -/
+@[ext]
 structure NExcept (ε α : Type) where
-  oks : List α
-  errors : List ε
+  oks : ListSet α
+  errors : ListSet ε
 
 namespace NExcept
 
 /-- Return true iff any error states are present. -/
 def hasError (e : NExcept ε α) : Bool :=
-  match e.errors with
-  | [] => false
-  | _ => true
+  not e.errors.isEmpty
 
 /-- Take the union of two state sets. -/
 def merge (m1 m2 : NExcept ε α) : NExcept ε α :=
-  { oks := m1.oks ++ m2.oks, errors := m1.errors ++ m2.errors }
+  { oks := m1.oks.union m2.oks, errors := m1.errors.union m2.errors }
 
-/-- Nondeterministically choose an element from a list. -/
-def choose (s : List α) : NExcept ε α :=
-  { oks := s, errors := [] }
+/-- Nondeterministically choose an element from a ListSet. -/
+def choose (s : ListSet α) : NExcept ε α :=
+  { oks := s, errors := ListSet.ofList [] }
 
 /-- The non-deterministic empty state. -/
 def empty : NExcept ε α :=
-  { oks := [], errors := [] }
+  { oks := ListSet.empty, errors := ListSet.empty }
 
 /-- Non-deterministically choose a `Fin n`. -/
-def chooseFin (n : Nat) : NExcept ε (Fin n) := choose (List.finRange n)
+def chooseFin (n : Nat) : NExcept ε (Fin n) :=
+  choose (ListSet.ofList (List.finRange n))
 
 /-- Non-deterministic state containing only the error `e`. -/
-def error (e : ε) : NExcept ε α := { oks := [], errors := [e] }
+def error (e : ε) : NExcept ε α :=
+  { oks := ListSet.ofList [], errors := ListSet.ofList [e] }
 
 def map (f : α → β) (m : NExcept ε α) : NExcept ε β :=
-  { oks := List.map f m.oks, errors := m.errors }
+  { oks := ListSet.map f m.oks, errors := m.errors }
 def pure (v : α) : NExcept ε α :=
-  { oks := [v], errors := [] }
-def bind (m : NExcept ε α) (f : α → NExcept ε β) :=
-  (m.oks.map f).foldr NExcept.merge { oks := [], errors := m.errors }
+  { oks := ListSet.ofList [v], errors := ListSet.ofList [] }
+def bind (m : NExcept ε α) (f : α → NExcept ε β) : NExcept ε β :=
+  let successors := m.oks.map f
+  { oks := (successors.map NExcept.oks).flatten
+  , errors := m.errors.union (successors.map NExcept.errors).flatten}
 
 instance : Functor (NExcept ε) where
   map := map
@@ -70,18 +72,8 @@ instance : Monad (NExcept ε) where
 /-- Lift a deterministic state into a non-deterministic. -/
 instance : MonadLift (Except ε) (NExcept ε) where
   monadLift r := match r with
-    | .ok a => { oks := [a], errors := [] }
-    | .error e => { oks := [], errors := [e] }
-
-/-- Return all states in a list. Arbitrary order. -/
-def toExceptList (m : NExcept ε α) : List (Except ε α) :=
-  (m.oks.map Except.ok) ++ (m.errors.map Except.error)
-
-/-- Return all states paired with values in a list. -/
-def toStatefulExceptList (m : NExcept (σ × ε) (σ × α)) : List (σ × Except ε α) :=
-  List.append
-    (m.oks.map (fun (s, r) => (s, Except.ok r)))
-    (m.errors.map (fun (s, err) => (s, Except.error err)))
+    | .ok a => { oks := ListSet.ofList [a], errors := ListSet.ofList [] }
+    | .error e => { oks := ListSet.ofList [], errors := ListSet.ofList [e] }
 
 /-- Map only the state of a `NExcept (σ × ε) (σ × α)`. -/
 def mapState (f : σ → σ') (r : NExcept (σ × ε) (σ × α)) : NExcept (σ' × ε) (σ' × α) :=
@@ -91,23 +83,13 @@ def mapState (f : σ → σ') (r : NExcept (σ × ε) (σ × α)) : NExcept (σ'
 theorem bind_iff {ε α β} (b : β) (m : NExcept ε α) (f : α → NExcept ε β)
      : b ∈ (NExcept.bind m f).oks ↔ ∃ (a : α), a ∈ m.oks ∧ b ∈ (f a).oks
   := by
-  simp only [NExcept.bind]
-  induction m.oks with
-  | nil =>
-    apply Iff.intro
-    all_goals simp
-  | cons a tail ih =>
-    simp only [NExcept.merge, List.foldr, List.map, List.mem_append]
-    apply Iff.intro
-    case mp =>
-      rintro (h | h)
-      · simp [h]
-      · simp [ih.mp h]
-    case mpr =>
-      rintro ⟨a, h_in, h_in_ok⟩
-      cases h_in with
-      | head => exact Or.inl h_in_ok
-      | tail _ h_in_tail => exact Or.inr (ih.mpr ⟨a, h_in_tail, h_in_ok⟩)
+  simp only [NExcept.bind, ListSet.mem_flatten, ListSet.mem_map]
+  apply Iff.intro
+  · rintro ⟨_, ⟨⟨t, ⟨a, ha, heq⟩, _, _⟩, hmem⟩⟩
+    refine ⟨a, ha, ?_⟩
+    simp [heq, hmem]
+  · rintro ⟨a, ha, hf⟩
+    refine ⟨(f a).oks, ⟨f a, ⟨a, ha, rfl⟩, rfl⟩, hf⟩
 
 end NExcept
 
@@ -121,20 +103,20 @@ def NEStateM (ε σ α : Type) : Type := σ → NExcept (σ × ε) (σ × α)
 
 namespace NEStateM
 
-/-- Non-deterministically choose an element from the list, ignoring state. -/
-def choose (res : List α) : NEStateM σ ε α :=
+/-- Non-deterministically choose an element from the ListSet, ignoring state. -/
+def choose (res : ListSet α) : NEStateM σ ε α :=
   fun s => NExcept.choose (res.map (fun r => (s, r)))
 
 /-- Non-deterministically choose a `Fin n`, ignoring state. -/
 def chooseFin (n : Nat) : NEStateM σ ε (Fin n) :=
-  choose (List.finRange n)
+  choose (ListSet.ofList (List.finRange n))
 
-/-- Non-determistically throw all errors in the list, ignoring state. -/
-def throwErrors (errors : List ε) : NEStateM ε σ α :=
-  fun s => { oks := [], errors := errors.map (fun e => (s, e))}
+/-- Non-determistically throw all errors in the ListSet, ignoring state. -/
+def throwErrors (errors : ListSet ε) : NEStateM ε σ α :=
+  fun s => { oks := ListSet.empty, errors := errors.map (fun e => (s, e))}
 
 /-- Non-deterministically throw a single error, ignoring state. -/
-def error (err : ε) : NEStateM ε σ α := throwErrors [err]
+def error (err : ε) : NEStateM ε σ α := throwErrors (ListSet.ofList [err])
 
 def mapError (f : ε → ε') (m : NEStateM ε σ α) : NEStateM ε' σ α :=
   fun s =>
@@ -188,6 +170,9 @@ def discardNone : Option α → NEStateM σ ε α
   | some a => pure a
   | none => discard
 
+theorem ext {m₁ m₂ : NEStateM ε σ α} (h : ∀ s, m₁ s = m₂ s) : m₁ = m₂ := by
+  exact funext h
+
 theorem bind_iff {ε σ α β} (s₀ : σ) (s : σ) (b : β) (m : NEStateM ε σ α) (f : α → NEStateM ε σ β)
     : (s, b) ∈ (Bind.bind m f s₀).oks ↔ ∃ (s' : σ) (a : α), (s', a) ∈ (m s₀).oks ∧ (s, b) ∈ (f a s').oks
   := by
@@ -221,20 +206,20 @@ theorem bind_mono_left {m₁ m₂ : NEStateM ε σ α} {f : α → NEStateM ε �
 theorem bind_get_elim {f : σ → NEStateM ε σ β} {s : σ}
     : Bind.bind get f s = f s s
   := by
-  simp [
-    Bind.bind, get,
-    NEStateM.get, NEStateM.bind,
-    NExcept.pure, NExcept.bind, NExcept.merge
-  ]
+  ext
+  all_goals
+    simp only [Bind.bind, NEStateM.bind, NExcept.pure, NExcept.bind, get]
+    apply ListSet.ext
+    simp [ListSet.mem_flatten, ListSet.mem_map, ListSet.mem_of_list, ListSet.mem_union]
 
 theorem bind_modify_elim {f : Unit → NEStateM ε σ β} {h : σ → σ} {s : σ}
     : Bind.bind (modify h) f s = f () (h s)
   := by
-  simp [
-    Bind.bind, modify, modifyGet,
-    NEStateM.bind,
-    NExcept.pure, NExcept.bind, NExcept.merge
-  ]
+  ext
+  all_goals
+    simp only [Bind.bind, NEStateM.bind, NExcept.pure, NExcept.bind, modify, modifyGet]
+    apply ListSet.ext
+    simp [ListSet.mem_flatten, ListSet.mem_map, ListSet.mem_of_list, ListSet.mem_union]
 
 theorem bind_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β}
     : m₁ = m₂ → f₁ = f₂ → Bind.bind m₁ f₁ = Bind.bind m₂ f₂
@@ -248,11 +233,15 @@ theorem bind_app_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NESta
     → Bind.bind m₁ f₁ s₁ = Bind.bind m₂ f₂ s₂
   := by
   intro h_ms h_f
-  simp only [Bind.bind, NEStateM.bind, NExcept.bind]
-  rw [h_ms] at h_f ⊢
-  apply congrArg
-  apply List.map_congr_left
-  exact h_f
+  ext
+  all_goals
+    simp only [Bind.bind, NEStateM.bind, NExcept.bind]
+    simp only [h_ms] at ⊢ h_f
+    apply congrArg
+    apply congrArg
+    try apply congrArg
+    apply ListSet.map_congr_left
+    exact h_f
 
 theorem bind_oks_congr {m₁ m₂ : NEStateM ε σ α} {f₁ f₂ : α → NEStateM ε σ β} {s₁ s₂}
     : m₁ = m₂ → f₁ = f₂ → s₁ = s₂ → (Bind.bind m₁ f₁ s₁).oks = (Bind.bind m₂ f₂ s₂).oks

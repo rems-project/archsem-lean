@@ -5,6 +5,7 @@
 import Std.Data.ExtTreeMap
 import Sail
 import ArchSem.Defs
+import ArchSem.ListSet
 
 open Sail.ArchSem
 
@@ -23,7 +24,15 @@ abbrev Address := BitVec Arch.addr_size
 An architecture memory map. We assume bytes of 8-bits indexed by a bit vector.
 -/
 def MemoryMap := Std.ExtTreeMap Address (BitVec 8)
-deriving DecidableEq
+deriving DecidableEq, Ord
+
+instance : Std.TransCmp (compare : MemoryMap → MemoryMap → Ordering) := by
+  change Std.TransCmp (compare : Std.ExtTreeMap Address (BitVec 8) → Std.ExtTreeMap Address (BitVec 8) → Ordering)
+  infer_instance
+
+instance : Std.LawfulEqCmp (compare : MemoryMap → MemoryMap → Ordering) := by
+  change Std.LawfulEqCmp (compare : Std.ExtTreeMap Address (BitVec 8) → Std.ExtTreeMap Address (BitVec 8) → Ordering)
+  infer_instance
 
 instance : Hashable MemoryMap where
   hash mem := mem.foldl (fun acc addr value => acc.xor (hash (addr, value))) 0
@@ -55,7 +64,17 @@ end MemoryMap
 
 /-- An architecture register map. -/
 def RegisterMap [ArchExtra] := Std.ExtDTreeMap Arch.register Arch.register_type
-deriving DecidableEq
+deriving DecidableEq, Ord
+
+instance : Std.TransCmp (compare : RegisterMap → RegisterMap → Ordering) := by
+  change Std.TransCmp (compare : Std.ExtDTreeMap Arch.register Arch.register_type →
+    Std.ExtDTreeMap Arch.register Arch.register_type → Ordering)
+  infer_instance
+
+instance : Std.LawfulEqCmp (compare : RegisterMap → RegisterMap → Ordering) := by
+  change Std.LawfulEqCmp (compare : Std.ExtDTreeMap Arch.register Arch.register_type →
+    Std.ExtDTreeMap Arch.register Arch.register_type → Ordering)
+  infer_instance
 
 instance : Hashable RegisterMap where
   hash regs := regs.foldl (fun acc addr value => acc.xor (hash (addr, value))) 0
@@ -79,6 +98,27 @@ structure ArchState (nThreads : Nat) where
   addressSpace : Arch.addr_space
   regs : Vector RegisterMap nThreads
 deriving DecidableEq, Hashable
+
+instance : Ord (ArchState nThreads) where
+  compare := compareOn (fun s => (s.memory, s.addressSpace, s.regs))
+
+instance : Std.TransCmp (compare : ArchState nThreads → ArchState nThreads → Ordering) := by
+  change Std.TransCmp (compareOn (fun s : ArchState nThreads => (s.memory, s.addressSpace, s.regs)))
+  infer_instance
+
+instance : Std.LawfulEqCmp (compare : ArchState nThreads → ArchState nThreads → Ordering) where
+  compare_self := by
+    intro a
+    change compare (a.memory, a.addressSpace, a.regs) (a.memory, a.addressSpace, a.regs) = Ordering.eq
+    exact Std.ReflCmp.compare_self
+  eq_of_compare {a b} h := by
+    change compare (a.memory, a.addressSpace, a.regs) (b.memory, b.addressSpace, b.regs) = Ordering.eq at h
+    have hfields : (a.memory, a.addressSpace, a.regs) = (b.memory, b.addressSpace, b.regs) :=
+      Std.LawfulEqCmp.eq_of_compare h
+    cases a
+    cases b
+    simp at hfields
+    simp [hfields]
 
 /--
 A decidable proposition as to weather an architecture state satisfies
@@ -104,7 +144,7 @@ deriving DecidableEq, Hashable
 
 def ComputationalTerminatingModel :=
   (nThreads : Nat) → (termCond : TerminationCondition nThreads) →
-  ArchState nThreads → List (ModelResult nThreads Unit termCond)
+  ArchState nThreads → ListSet (ModelResult nThreads Unit termCond)
 
 def ComputationalTerminatingModel.weaker
     (m₁ m₂ : ComputationalTerminatingModel) : Prop :=

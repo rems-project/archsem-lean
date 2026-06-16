@@ -154,8 +154,12 @@ structure FwdItem where
   view : View
   /-- Marks if the write was exclusive. -/
   xcl : Bool
+deriving Hashable
 
 def FwdItem.init : FwdItem := { time := 0, view := 0, xcl := false }
+
+instance : Hashable (Sigma (fun reg : Arch.register => (Arch.register_type reg) × View)) where
+  hash v := hash (v.1, v.2.1, v.2.2)
 
 /-- A single threads inter-instruction state according to the model. -/
 structure ThreadState where
@@ -198,6 +202,7 @@ structure ThreadState where
   of the load exclusive
   -/
   xclb : Option (Timestamp × View)
+deriving Hashable
 
 /--
 Reads the last write to a location in some memory. Gives the value and the
@@ -227,14 +232,14 @@ The list is never empty as one can always read from at least the initial value.
 Returns none if the address is not mapped in initial memory
 -/
 def read (loc : Loc) (v : View) (init : InitialMem) (mem : PromisingMemory)
-    : Option (List (Value × Timestamp)) :=
+    : Option (ListSet (Value × Timestamp)) :=
   match mem.cutBefore v |> readLast loc init with
   | .none => .none /- `loc` not mapped in initial memory -/
   | .some first =>
     let lasts := mem.cutAfterWithTimestamps v
               |> List.filter (fun (msg, _) => msg.loc == loc)
               |> List.map (fun (msg, v) => (msg.val, v))
-    .some (lasts ++ [first])
+    .some (ListSet.ofList (lasts ++ [first]))
 
 /--
 Returns a view among a promise set that correspond to a message. The oldest
@@ -629,7 +634,7 @@ def promiseMsg (tid : Fin n) (msg : Msg) (mstate : ModelState n) : ModelState n 
 /-- Run effect on thread, recording list of promises that can be made. -/
 def runEffectWithPromise (tid : Nat) (initmem : InitialMem)
     (base : View) (eff : InstructionEffect)
-    : NEStateM String (List Msg × ProjectedModelState) eff.ret := do
+    : NEStateM String (ListSet Msg × ProjectedModelState) eff.ret := do
   /- Run the effect on the ProjectedModelState. -/
   let (res, vpreOpt) ← NEStateM.liftStateFull Prod.snd
     (fun pmstate state => (state.fst, pmstate) )
@@ -642,7 +647,8 @@ def runEffectWithPromise (tid : Nat) (initmem : InitialMem)
       Take all promises after base (made by that effect) and add them to the
       list of possible new promises.
       -/
-      modify (fun (l,s) => (mem.take (mem.length - base) ++ l,s))
+      let newProms := ListSet.ofList (mem.take (mem.length - base))
+      modify (fun (l,s) => (l.union newProms,s))
       pure res
     else
       pure res
@@ -651,7 +657,7 @@ def runEffectWithPromise (tid : Nat) (initmem : InitialMem)
 /-- Run a thread until its termination condition, recording a list of promises it can make. -/
 def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     (termination : TerminationCondition n) (fuel : Nat) (base : View)
-    : NEStateM String (List Msg × ProjectedModelState) Bool := do
+    : NEStateM String (ListSet Msg × ProjectedModelState) Bool := do
   match fuel with
   | 0 =>
     /- If out of fuel and still not terminated then return false. -/
@@ -672,9 +678,9 @@ def runToTermination (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
       runToTermination tid initmem isem termination fuel base
 
 structure EnumerationResult where
-  promises : List Msg
-  finalStates : List ThreadState
-  errors : List String
+  promises : ListSet Msg
+  finalStates : ListSet ThreadState
+  errors : ListSet String
   outOfFuel : Bool
 
 /--
@@ -684,11 +690,11 @@ the final states it can reach, and any errors it encountered.
 def enumerateResults (n : Nat) (fuel : Nat) (tid : Fin n) (initmem : InitialMem) (isem : SailM Unit)
     (termination : TerminationCondition n) (ts : ThreadState) (mem : PromisingMemory) : EnumerationResult :=
   let base := mem.length
-  let st : List Msg × ProjectedModelState := ([], { threadState := ts, mem := mem, iis := IIS.init })
+  let st : ListSet Msg × ProjectedModelState := (ListSet.empty, { threadState := ts, mem := mem, iis := IIS.init })
   let res := runToTermination tid initmem isem termination fuel base st
   let successStates := res.oks.map Prod.fst
   let outOfFuel := res.oks.any (fun r => not r.snd)
-  let promises := (successStates.map Prod.fst).flatten.eraseDups
+  let promises := (successStates.map Prod.fst).flatten.prune
   let finalStates := successStates.filterMap (fun (newProms, st) =>
     if newProms.isEmpty then some st.threadState else none)
   let errors := res.errors.filterMap (fun ((newProms, _), errMsg) =>
@@ -787,8 +793,8 @@ def runPromiseFirst (fuel : Nat) (isem : SailM Unit)
       NEStateM.discard
   | 2 =>
     /- Throw all errors in the execution results. -/
-    let errs := executionResults.toList.map EnumerationResult.errors |>.flatten
-    NEStateM.throwErrors errs
+    let errs := executionResults.toList.map EnumerationResult.errors
+    NEStateM.throwErrors (ListSet.ofList errs).flatten
 
 /--
 Convert a promising model (non-deterministic state monad on the promising ModelState)
@@ -804,14 +810,15 @@ def promisingRuntimeToModel
     let threadStates := archState.regs.map ThreadState.init
     let mState : ModelState nThreads := { initmem, threadStates, mem := [] }
     let output := run nThreads termCond mState
-    let errors : List (ModelResult nThreads Unit termCond) :=
+    let errors : ListSet (ModelResult nThreads Unit termCond) :=
       output.errors.map (fun (_,msg) => ModelResult.error msg)
-    let results : List (ModelResult nThreads Unit termCond) :=
+    let results : ListSet (ModelResult nThreads Unit termCond) :=
       (output.oks.map (fun (_,final) =>
         let archState := final.state.toArchState
         let proof := terminated_model_state_to_arch_state final.proof
         ModelResult.finalState archState proof))
-    errors ++ (Std.HashSet.ofList results).toList
+    -- TODO: do a faster hash-based prune here
+    errors.union results.prune
 
 /--
 The naive model is more obviously correct than the promiseFirstModel, but

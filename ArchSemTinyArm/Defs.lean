@@ -106,6 +106,60 @@ instance : Std.LawfulEqCmp (Ord.compare : Arch.register → Arch.register → Or
     rename_i eq
     exact regNum_injective eq
 
+private def registerSigmaKey (v : Sigma Arch.register_type) : Arch.register × BitVec 64 :=
+  let h : Arch.register_type v.1 = BitVec 64 := by
+    simp [Arch.register_type, RegisterType]
+    split <;> rfl
+  (v.1, h ▸ v.2)
+
+private theorem registerSigmaKey_injective : Function.Injective registerSigmaKey := by
+  intro a b h
+  cases a with
+  | mk ar av =>
+    cases b with
+    | mk br bv =>
+      simp [registerSigmaKey] at h ⊢
+      cases h.1
+      cases ar <;> simp [Arch.register_type, RegisterType] at h ⊢ <;> exact h
+
+instance : Ord (Sigma Arch.register_type) where
+  compare := compareOn registerSigmaKey
+
+instance : Std.TransCmp (compare : Sigma Arch.register_type → Sigma Arch.register_type → Ordering) := by
+  change Std.TransCmp (compareOn registerSigmaKey)
+  infer_instance
+
+instance : Std.LawfulEqCmp (compare : Sigma Arch.register_type → Sigma Arch.register_type → Ordering) where
+  compare_self := by
+    intro a
+    change compare (registerSigmaKey a) (registerSigmaKey a) = Ordering.eq
+    exact Std.ReflCmp.compare_self
+  eq_of_compare {a b} h := by
+    apply registerSigmaKey_injective
+    change compare (registerSigmaKey a) (registerSigmaKey b) = Ordering.eq at h
+    exact Std.LawfulEqCmp.eq_of_compare h
+
+instance : Ord Arch.addr_space where
+  compare _ _ := Ordering.eq
+
+instance : Std.TransCmp (compare : Arch.addr_space → Arch.addr_space → Ordering) where
+  eq_swap := by
+    intro a b
+    rfl
+  isLE_trans := by
+    intro a b c hab hbc
+    rfl
+
+instance : Std.LawfulEqCmp (compare : Arch.addr_space → Arch.addr_space → Ordering) where
+  compare_self := by
+    intro a
+    rfl
+  eq_of_compare := by
+    intro a b h
+    cases a
+    cases b
+    rfl
+
 /-- Specialize architecture-generic register value to TinyArm register. -/
 def registerTypeOfGen (reg : Arch.register)
     : RegValGen → Except String (Arch.register_type reg)

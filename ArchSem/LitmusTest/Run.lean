@@ -148,12 +148,13 @@ def runLitmusTest [ArchExtra]
     | .flagged f => .some s!"Unexpected flagged output {f}"
     | .error msg => .some msg)
   if !errors.isEmpty then
-    Except.error ("errors:" ++ "\n".intercalate errors)
+    let sortedErrors := errors.toSortedList compare
+    Except.error ("errors:" ++ "\n".intercalate sortedErrors)
   let archStates := output.filterMap (fun
     | .finalState archState _ => .some archState
     | .flagged _ => .none
     | .error _ => .none
     )
-  archTest.checkFinalConditions archStates
+  archTest.checkFinalConditions (archStates.toSortedList compare)
 
 end ArchSem.LitmusTest.Run

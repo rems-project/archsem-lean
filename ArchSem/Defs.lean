@@ -3,8 +3,51 @@
 -- SPDX-License-Identifier: Apache-2.0 OR BSD-2-Clause
 
 import Sail
+import Std.Data.ExtTreeMap
 
 open Sail.ArchSem
+
+/-
+These instances are a bit of a hack. I want well-behaved ordering and hashing
+on architecture states, which means I need well-behaved ordering and hashing on
+tree maps.
+-/
+instance (α β : Type u) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Hashable α] [Hashable β] : Hashable (Std.ExtTreeMap α β (cmp := cmp)) where
+  hash v := hash v.toList
+instance (α : Type u) (β : α → Type v) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Hashable α] [Hashable (Sigma β)] : Hashable (Std.ExtDTreeMap α β (cmp := cmp)) where
+  hash v := hash v.toList
+instance (α : Type u) (β : Type v) [Ord α] [Ord β] : Ord (α × β) := lexOrd
+instance (α β : Type u) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Ord α] [Ord β] : Ord (Std.ExtTreeMap α β (cmp := cmp)) where
+  compare := compareOn Std.ExtTreeMap.toList
+instance (α β : Type u) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Ord α] [Ord β] [Std.TransCmp (compare : List (α × β) → List (α × β) → Ordering)] :
+    Std.TransCmp (compare : Std.ExtTreeMap α β (cmp := cmp) → Std.ExtTreeMap α β (cmp := cmp) → Ordering) := by
+  change Std.TransCmp (compareOn Std.ExtTreeMap.toList)
+  infer_instance
+instance (α β : Type u) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Ord α] [Ord β] [Std.LawfulEqCmp (compare : List (α × β) → List (α × β) → Ordering)] :
+    Std.LawfulEqCmp (compare : Std.ExtTreeMap α β (cmp := cmp) → Std.ExtTreeMap α β (cmp := cmp) → Ordering) where
+  compare_self := by
+    simp [compare, compareOn]
+  eq_of_compare h := Std.ExtTreeMap.toList_inj.mp (Std.LawfulEqCmp.eq_of_compare h)
+instance (α : Type u) (β : α → Type v) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Ord (Sigma β)] :
+    Ord (Std.ExtDTreeMap α β (cmp := cmp)) where
+  compare := compareOn Std.ExtDTreeMap.toList
+instance (α : Type u) (β : α → Type v) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Ord (Sigma β)] [Std.TransCmp (compare : List (Sigma β) → List (Sigma β) → Ordering)] :
+    Std.TransCmp (compare : Std.ExtDTreeMap α β (cmp := cmp) → Std.ExtDTreeMap α β (cmp := cmp) → Ordering) := by
+  change Std.TransCmp (compareOn Std.ExtDTreeMap.toList)
+  infer_instance
+instance (α : Type u) (β : α → Type v) (cmp : α → α → Ordering) [Std.TransCmp cmp]
+    [Ord (Sigma β)] [Std.LawfulEqCmp (compare : List (Sigma β) → List (Sigma β) → Ordering)] :
+    Std.LawfulEqCmp (compare : Std.ExtDTreeMap α β (cmp := cmp) → Std.ExtDTreeMap α β (cmp := cmp) → Ordering) where
+  compare_self := by
+    simp [compare, compareOn]
+  eq_of_compare h := Std.ExtDTreeMap.toList_inj.mp (Std.LawfulEqCmp.eq_of_compare h)
 
 namespace ArchSem
 
@@ -52,8 +95,15 @@ class ArchExtra where
   register_trans : Std.TransCmp register_ord.compare
   register_lawful_eq_cmp : Std.LawfulEqCmp register_ord.compare
   -- register_lawful_eq_cmp : Std.LawfulEqCmp register_ord register_ord.compare
+  register_types_ord (reg : Arch.register) : Ord (Arch.register_type reg)
+  register_sigma_ord : Ord (Sigma Arch.register_type)
+  register_sigma_trans : Std.TransCmp register_sigma_ord.compare
+  register_sigma_lawful_eq_cmp : Std.LawfulEqCmp register_sigma_ord.compare
   /- There must be a default address space to be used in litmus tests. -/
   addr_space_inhabited : Inhabited Arch.addr_space
+  addr_space_ord : Ord Arch.addr_space
+  addr_space_trans : Std.TransCmp addr_space_ord.compare
+  addr_space_lawful_eq_cmp : Std.LawfulEqCmp addr_space_ord.compare
   /- Comparisons are required for checking final states in litmus tests. -/
   register_type_deq (reg : Arch.register) : DecidableEq (Arch.register_type reg)
   addr_space_deq : DecidableEq Arch.addr_space
@@ -82,12 +132,21 @@ class ArchExtra where
 instance [ArchExtra] : Ord Arch.register := ArchExtra.register_ord
 instance [ArchExtra] : Std.TransCmp ArchExtra.register_ord.compare := ArchExtra.register_trans
 instance [ArchExtra] : Std.LawfulEqCmp ArchExtra.register_ord.compare := ArchExtra.register_lawful_eq_cmp
+instance [ArchExtra] (reg : Arch.register) : Ord (Arch.register_type reg) := ArchExtra.register_types_ord reg
+instance [ArchExtra] : Ord (Sigma Arch.register_type) := ArchExtra.register_sigma_ord
+instance [ArchExtra] : Std.TransCmp ArchExtra.register_sigma_ord.compare := ArchExtra.register_sigma_trans
+instance [ArchExtra] : Std.LawfulEqCmp ArchExtra.register_sigma_ord.compare := ArchExtra.register_sigma_lawful_eq_cmp
 instance [ArchExtra] : Inhabited Arch.addr_space  := ArchExtra.addr_space_inhabited
+instance [ArchExtra] : Ord Arch.addr_space := ArchExtra.addr_space_ord
+instance [ArchExtra] : Std.TransCmp ArchExtra.addr_space_ord.compare := ArchExtra.addr_space_trans
+instance [ArchExtra] : Std.LawfulEqCmp ArchExtra.addr_space_ord.compare := ArchExtra.addr_space_lawful_eq_cmp
 instance [ArchExtra] (reg : Arch.register) : DecidableEq (Arch.register_type reg) := ArchExtra.register_type_deq reg
 instance [ArchExtra] : DecidableEq Arch.addr_space  := ArchExtra.addr_space_deq
 instance [ArchExtra] : Hashable Arch.addr_space := ArchExtra.addr_space_hashable
 instance [ArchExtra] : Hashable Arch.register := ArchExtra.register_hashable
 instance [ArchExtra] (reg : Arch.register) : Hashable (Arch.register_type reg) := ArchExtra.register_types_hashable reg
+instance [ArchExtra] : Hashable (Sigma Arch.register_type) where
+  hash v := hash (v.1, v.2)
 instance [ArchExtra] : Repr Arch.addr_space  := ArchExtra.addr_space_repr
 instance [ArchExtra] : Repr Arch.register    := ArchExtra.register_repr
 instance [ArchExtra] (reg : Arch.register) : Repr (Arch.register_type reg) := ArchExtra.register_type_repr reg

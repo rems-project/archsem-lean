@@ -4,6 +4,7 @@
 
 import Sail
 import ArchSem.Defs
+import ArchSem.ListSet
 import ArchSem.TerminatingModel
 import ArchSem.NondeterministicMonad
 import ArchSemTinyArm.Defs
@@ -11,6 +12,7 @@ import ArchSemTinyArm.Defs
 open Sail
 open Sail.ArchSem
 open ArchSem.TerminatingModel
+open ArchSem
 open ArchSem.NondeterministicMonad
 
 namespace ArchSemTinyArm.Sequential
@@ -112,13 +114,14 @@ def createSequentialModel (isem : SailM Unit) (fuel : Nat) : ComputationalTermin
   | 1, (termCond : TerminationCondition 1), (initialState : ArchState 1) =>
     let seqState : SequentialState := SequentialState.ofArchState initialState
     let results := runToTermination fuel isem termCond seqState
-    let errors : List String := results.errors.map Prod.snd
-    let finalStates : List (TerminatedSequentialState termCond) := results.oks.map Prod.snd
+    let errors : ListSet String := results.errors.map Prod.snd
+    let finalStates : ListSet (TerminatedSequentialState termCond) := results.oks.map Prod.snd
     let terminatedToFinalState (terminated : TerminatedSequentialState termCond)
         : ModelResult 1 Unit termCond :=
       ModelResult.finalState terminated.state.toArchState terminated.proof
-    (errors.map ModelResult.error) ++ (finalStates.map terminatedToFinalState).eraseDups
+    (errors.map ModelResult.error).union (finalStates.map terminatedToFinalState)
   | nThreads, _termCond, _initialState =>
-    [ModelResult.error s!"Sequential model only supports one thread, not {nThreads}."]
+    ListSet.ofList [ModelResult.error
+      s!"Sequential model only supports one thread, not {nThreads}."]
 
 end ArchSemTinyArm.Sequential

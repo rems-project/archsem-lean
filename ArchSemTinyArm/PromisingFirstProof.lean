@@ -4,8 +4,10 @@
 
 import Init.Data.List.Lemmas
 import ArchSem.TerminatingModel
+import ArchSem.ListSet
 import ArchSemTinyArm.Promising
 
+open ArchSem
 open ArchSem.NondeterministicMonad
 open ArchSem.TerminatingModel
 open ArchSemTinyArm.Promising
@@ -15,7 +17,7 @@ namespace ArchSemTinyArm.Promising
 theorem run_to_termination_monotonic_fuel
     {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
     {termination : TerminationCondition nThreads}
-    {fuel base : Nat} {promises : List Msg} {pstate : ProjectedModelState}
+    {fuel base : Nat} {promises : ListSet Msg} {pstate : ProjectedModelState}
     : ∀ s ∈ (runToTermination tid initmem isem termination fuel base (promises, pstate)).oks,
         s.snd →
         s ∈ (runToTermination tid initmem isem termination (fuel + 1) base (promises, pstate)).oks
@@ -47,11 +49,11 @@ theorem run_to_termination_monotonic_fuel
 theorem run_to_termination_stays_terminated
     {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
     {termination : TerminationCondition nThreads}
-    {fuel : Nat} {base : Nat} {promises₀ : List Msg} {pstate₀ : ProjectedModelState}
-      : ( ∀ (promises : List Msg) (pstate : ProjectedModelState),
+    {fuel : Nat} {base : Nat} {promises₀ : ListSet Msg} {pstate₀ : ProjectedModelState}
+      : ( ∀ (promises : ListSet Msg) (pstate : ProjectedModelState),
           ((promises, pstate), false)
           ∉ (runToTermination tid initmem isem termination fuel base (promises₀, pstate₀)).oks )
-      → ( ∀ (promises : List Msg) (pstate : ProjectedModelState),
+      → ( ∀ (promises : ListSet Msg) (pstate : ProjectedModelState),
           ((promises, pstate), false)
           ∉ (runToTermination tid initmem isem termination (fuel + 1) base (promises₀, pstate₀)).oks )
   := by
@@ -60,7 +62,6 @@ theorem run_to_termination_stays_terminated
   simp only [← not_exists] at h ⊢
   revert h
   apply mt
-  
   induction fuel generalizing promises₀ pstate₀ with
   | zero =>
     intro h
@@ -82,7 +83,7 @@ theorem run_to_termination_stays_terminated
 theorem run_to_termination_eventually_equal
     {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
     {termination : TerminationCondition nThreads}
-    {fuel base : Nat} {promises : List Msg} {pstate : ProjectedModelState}
+    {fuel base : Nat} {promises : ListSet Msg} {pstate : ProjectedModelState}
     : (∀ s ∈ (runToTermination tid initmem isem termination fuel base (promises, pstate)).oks, s.snd)
      → runToTermination tid initmem isem termination fuel base (promises, pstate)
      = runToTermination tid initmem isem termination (fuel + 1) base (promises, pstate)
@@ -115,8 +116,8 @@ theorem run_to_termination_eventually_equal
 theorem run_to_termination_eventually_equal'
     {tid : Fin nThreads} {initmem : InitialMem} {isem : SailM Unit}
     {termination : TerminationCondition nThreads}
-    {fuel base : Nat} {promises : List Msg} {pstate : ProjectedModelState}
-    : (∀ (p : List Msg) (s : ProjectedModelState),
+    {fuel base : Nat} {promises : ListSet Msg} {pstate : ProjectedModelState}
+    : (∀ (p : ListSet Msg) (s : ProjectedModelState),
         ((p, s), false) ∉ (runToTermination tid initmem isem termination fuel base (promises, pstate)).oks)
      → runToTermination tid initmem isem termination fuel base (promises, pstate)
      = runToTermination tid initmem isem termination (fuel + 1) base (promises, pstate)
@@ -132,7 +133,7 @@ theorem enumerate_results_stays_terminated {nThreads : Nat}
     : ¬(enumerateResults nThreads fuel tid initmem isem termCond ts mem).outOfFuel →
       ¬(enumerateResults nThreads (fuel + 1) tid initmem isem termCond ts mem).outOfFuel
   := by
-  simp only [enumerateResults, List.any_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true, Prod.exists,
+  simp only [enumerateResults, ListSet.any_eq_true, Bool.not_eq_eq_eq_not, Bool.not_true, Prod.exists,
     exists_eq_right, not_exists]
   apply run_to_termination_stays_terminated
 
@@ -146,7 +147,12 @@ theorem enumerate_result_promises_monotonic_fuel {nThreads : Nat}
   := by
   intro s
   simp only [enumerateResults]
-  simp [List.mem_eraseDups] -- TODO: using simp like this is bad practice.
+  simp only [ListSet.prune_eq]
+  simp only [ListSet.mem_flatten, ListSet.mem_map, Prod.exists, exists_and_right, Bool.exists_bool,
+    exists_eq_right, ListSet.any_eq_false, Bool.not_eq_eq_eq_not, Bool.not_false, Prod.forall,
+    Bool.forall_bool, Bool.false_eq_true, imp_false, implies_true, and_true, forall_exists_index,
+    and_imp]
+  -- simp [List.mem_eraseDups] -- TODO: using simp like this is bad practice.
   intro promises pmstate h h_s_in_promises h_fuel_remains
   cases h with
   | inl h =>
@@ -171,7 +177,8 @@ theorem enumerate_results_eventually_eual {nThreads : Nat}
   := by
   intro h_fuel
   simp only [enumerateResults] at h_fuel ⊢
-  simp [List.any_eq_false] at h_fuel
+  simp only [ListSet.any_eq_false, Bool.not_eq_eq_eq_not, Bool.not_false, Prod.forall,
+    Bool.forall_bool, Bool.false_eq_true, imp_false, implies_true, and_true] at h_fuel
   have := run_to_termination_eventually_equal' h_fuel
   rw [this]
 
@@ -217,7 +224,7 @@ theorem run_step_monotonic_fuel
     simp only [get, NEStateM.bind_get_elim]
     apply NEStateM.bind_mono_left
     simp only [liftM, monadLift, MonadLift.monadLift]
-    simp only [List.mem_map, forall_exists_index, and_imp, forall_apply_eq_imp_iff₂, Prod.mk.injEq,
+    simp only [ListSet.mem_map, forall_exists_index, and_imp, forall_apply_eq_imp_iff₂, Prod.mk.injEq,
       true_and, exists_eq_right]
     apply promise_select_tid_monotonic_fuel
   | 1 =>
@@ -307,9 +314,10 @@ theorem naive_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
   rw [ComputationalTerminatingModel.weaker]
   intro nThreads termCond init final t r h r_eq
   rw [createNaiveModel, promisingRuntimeToModel, r_eq] at h ⊢
-  simp only [List.mem_append, List.mem_map, reduceCtorEq, and_false, exists_false, false_or] at h ⊢
-  simp only [Std.HashSet.mem_toList, Std.HashSet.mem_ofList] at h ⊢
-  simp only [List.contains_eq_mem, List.mem_map, decide_eq_true_eq] at h ⊢
+  simp only [ListSet.mem_union, ListSet.mem_map, reduceCtorEq, and_false, exists_false, false_or] at h ⊢
+  --simp only [Std.HashSet.mem_toList, Std.HashSet.mem_ofList] at h ⊢
+  simp only [ListSet.prune_eq] at h ⊢
+  simp only [ListSet.mem_map] at h ⊢
   rcases h with ⟨r, h, h_eq⟩
   refine ⟨r, ?_, h_eq⟩
   apply naive_runtime_monotonic_fuel
@@ -321,9 +329,9 @@ theorem promise_first_model_monotonic_fuel {isem : SailM Unit} {fuel : Nat}
   rw [ComputationalTerminatingModel.weaker]
   intro nThreads termCond init final t r h r_eq
   rw [createPromiseFirstModel, promisingRuntimeToModel, r_eq] at h ⊢
-  simp only [List.mem_append, List.mem_map, reduceCtorEq, and_false, exists_false, false_or] at h ⊢
-  simp only [Std.HashSet.mem_toList, Std.HashSet.mem_ofList] at h ⊢
-  simp only [List.contains_eq_mem, List.mem_map, decide_eq_true_eq] at h ⊢
+  simp only [ListSet.mem_union, ListSet.mem_map, reduceCtorEq, and_false, exists_false, false_or] at h ⊢
+  simp only [ListSet.prune_eq] at h ⊢
+  simp only [ListSet.mem_map] at h ⊢
   rcases h with ⟨r, h, h_eq⟩
   refine ⟨r, ?_, h_eq⟩
   apply promise_first_runtime_monotonic_fuel

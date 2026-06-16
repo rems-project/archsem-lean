@@ -2,9 +2,11 @@
 --
 -- SPDX-License-Identifier: Apache-2.0 OR BSD-2-Clause
 
+import ArchSem.ListSet
 import ArchSemTinyArm.Defs
 import ArchSemTinyArm.Promising
 
+open ArchSem
 open Sail.ArchSem
 open ArchSem.TerminatingModel
 open ArchSemTinyArm.Promising
@@ -31,13 +33,18 @@ def extractRegs (regs : List (Fin n × Register)) (archState : ArchState n)
   regs.map (fun (tid,reg) => getRegValue tid reg |> Option.map reprStr)
 
 def prepareTestResults [BEq α] (extractor : ArchState n → α)
-    (res : List (ModelResult n Unit termCond))
-    : List String × List α :=
-  res.foldl (fun (errs,results) r => match r with
-    | .finalState s _ => (errs, extractor s :: results)
-    | .flagged () => (errs.insert "Flagged", results)
-    | .error msg => (errs.insert msg, results)
-    ) ([], [])
+    (res : ListSet (ModelResult n Unit termCond))
+    : ListSet String × ListSet α :=
+  let errors := res.filterMap (fun r => match r with
+    | .finalState s _ => .none
+    | .flagged () => .some "Flagged"
+    | .error msg => .some msg)
+  let results := res.filterMap (fun r => match r with
+    | .finalState s _ => .some (extractor s)
+    | .flagged () => .none
+    | .error _ => .none
+  )
+  (errors, results)
 
 namespace EOR
 
@@ -78,12 +85,12 @@ def promiseFirstOutput := promiseFirstModel nThreads terminationCondition initia
 def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOutput
 
 -- Check no errors
-#guard naiveResults.fst == []
-#guard promiseFirstResults.fst == []
+#guard naiveResults.fst.isEmpty
+#guard promiseFirstResults.fst.isEmpty
 
 -- Check expected results
-#guard naiveResults.snd.isPerm expectedResults
-#guard promiseFirstResults.snd.isPerm expectedResults
+#guard naiveResults.snd = ListSet.ofList expectedResults
+#guard promiseFirstResults.snd = ListSet.ofList expectedResults
 
 end EOR
 
@@ -163,12 +170,12 @@ def promiseFirstOutput := promiseFirstModel nThreads terminationCondition initia
 def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOutput
 
 -- Check no errors
-#guard naiveResults.fst == []
-#guard promiseFirstResults.fst == []
+#guard naiveResults.fst.isEmpty
+#guard promiseFirstResults.fst.isEmpty
 
 -- Check expected results
-#guard naiveResults.snd.isPerm expectedResults
-#guard promiseFirstResults.snd.isPerm expectedResults
+#guard naiveResults.snd = ListSet.ofList expectedResults
+#guard promiseFirstResults.snd = ListSet.ofList expectedResults
 
 end MP
 
@@ -249,12 +256,12 @@ def promiseFirstOutput := promiseFirstModel nThreads terminationCondition initia
 def promiseFirstResults := prepareTestResults finalStateExtractor promiseFirstOutput
 
 -- Check no errors
-#guard naiveResults.fst == []
-#guard promiseFirstResults.fst == []
+#guard naiveResults.fst.isEmpty
+#guard promiseFirstResults.fst.isEmpty
 
 -- Check expected results
-#guard naiveResults.snd.isPerm expectedResults
-#guard promiseFirstResults.snd.isPerm expectedResults
+#guard naiveResults.snd = ListSet.ofList expectedResults
+#guard promiseFirstResults.snd = ListSet.ofList expectedResults
 
 end MPDMBS
 

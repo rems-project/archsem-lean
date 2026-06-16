@@ -2,9 +2,11 @@
 --
 -- SPDX-License-Identifier: Apache-2.0 OR BSD-2-Clause
 
+import ArchSem.ListSet
 import ArchSemTinyArm.Sequential
 import ArchSemTinyArm.Defs
 
+open ArchSem
 open Sail.ArchSem
 open ArchSemTinyArm.Sequential
 open ArchSem.TerminatingModel
@@ -30,13 +32,18 @@ def extractRegs (regs : List (Fin n × Register)) (archState : ArchState n)
   regs.map (fun (tid,reg) => getRegValue tid reg |> Option.map reprStr)
 
 def prepareTestResults [BEq α] (extractor : ArchState n → α)
-    (res : List (ModelResult n Unit termCond))
-    : List String × List α :=
-  res.foldl (fun (errs,results) r => match r with
-    | .finalState s _ => (errs, extractor s :: results)
-    | .flagged () => (errs.insert "Flagged", results)
-    | .error msg => (errs.insert msg, results)
-    ) ([], [])
+    (res : ListSet (ModelResult n Unit termCond))
+    : ListSet String × ListSet α :=
+  let errors := res.filterMap (fun r => match r with
+    | .finalState s _ => .none
+    | .flagged () => .some "Flagged"
+    | .error msg => .some msg)
+  let results := res.filterMap (fun r => match r with
+    | .finalState s _ => .some (extractor s)
+    | .flagged () => .none
+    | .error _ => .none
+  )
+  (errors, results)
 
 /- Run EOR X0, X1, X2 at pc address 0x500, whose opcode is 0xca020020 -/
 namespace EOR
@@ -70,9 +77,9 @@ def output := sequentialModel 1 terminationCondition initialState
 def results := prepareTestResults finalStateExtractor output
 
 -- Check no errors.
-#guard results.fst == []
+#guard results.fst.isEmpty
 -- Check expected results.
-#guard results.snd.isPerm expectedResults
+#guard results.snd = ListSet.ofList expectedResults
 
 end EOR
 
