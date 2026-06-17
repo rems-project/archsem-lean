@@ -34,7 +34,7 @@ theorem run_to_termination_monotonic_fuel
     rw [runToTermination, runToTermination]
     apply NEStateM.bind_mono_right
     intro (s', a') h_interp
-    simp only [get, NEStateM.bind_get_elim]
+    simp only [get, bind, NEStateM.bind_get_elim]
     intro h
     split at h
     case isFalse h_termination =>
@@ -69,7 +69,7 @@ theorem run_to_termination_stays_terminated
   | succ f ih =>
     rintro ⟨proms, s, h⟩
     rw [runToTermination] at h ⊢
-    simp only [NEStateM.bind_iff] at h ⊢
+    simp only [bind, NEStateM.bind_iff] at h ⊢
     obtain ⟨w₁, u, h_w₁, w₂, w₂', h_w₂, h⟩ := h
     split at h <;> try contradiction
     rename_i h_term
@@ -98,7 +98,7 @@ theorem run_to_termination_eventually_equal
 
     apply NEStateM.bind_app_congr <;> try simp
     intro p₁ s₁ u₁ h_interp
-    simp only [get, NEStateM.bind_get_elim]
+    simp only [get, bind, NEStateM.bind_get_elim]
     split <;> try simp
     rename_i h_term'
 
@@ -107,6 +107,7 @@ theorem run_to_termination_eventually_equal
     apply ih
     intro s h
     apply h_term
+    simp only [bind]
     rw [NEStateM.bind_iff]
     refine ⟨(p₁, s₁), u₁, h_interp, ?_⟩
     simp only [get, NEStateM.bind_get_elim, h_term', Bool.false_eq_true, ↓reduceIte]
@@ -221,7 +222,7 @@ theorem run_step_monotonic_fuel
 
   match choice with
   | 0 =>
-    simp only [get, NEStateM.bind_get_elim]
+    simp only [get, bind, NEStateM.bind_get_elim]
     apply NEStateM.bind_mono_left
     simp only [liftM, monadLift, MonadLift.monadLift]
     simp only [ListSet.mem_map, forall_exists_index, and_imp, forall_apply_eq_imp_iff₂, Prod.mk.injEq,
@@ -271,7 +272,7 @@ theorem promise_first_runtime_monotonic_fuel {fuel : Nat} {isem : SailM Unit} {n
   | succ f ih =>
     rw [runPromiseFirst, runPromiseFirst]
     simp only [Nat.reduceBeqDiff, Bool.false_eq_true, ↓reduceIte]
-    simp only [get, NEStateM.bind_get_elim]
+    simp only [get, bind, NEStateM.bind_get_elim]
     intro h
     split at h <;> try contradiction
     split <;> rename_i h_fuel h_fuel'
