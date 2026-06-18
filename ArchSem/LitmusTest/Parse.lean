@@ -10,6 +10,7 @@ import ArchSem.LitmusTest.Defs
 
 /-!
 This file implements parsing of '.archsem.toml' litmus tests.
+Some of the code is a bit messy because the test format keeps changing.
 -/
 
 open ArchSem.LitmusTest
@@ -32,9 +33,14 @@ def tomlFindNatElse (table : Lake.Toml.Table) (name : Lean.Name) (e : String)
   let n ← tomlFindIntElse table name e
   if n < 0 then Except.error (e ++ " (excepting Nat found negative Int)")
   pure n.toNat
+def tomlFindTableElse (table : Lake.Toml.Table) (name : Lean.Name) (e : String)
+    : Except String Lake.Toml.Table :=
+  match table.find? name with
+  | .some (.table _ t) => pure t
+  | _ => Except.error e
 
 -- TODO: prove termination.
-/-- Parse one RegValueGen. e.g. a value in `[[registers]]`. -/
+/-- Parse one RegValueGen. -/
 partial def tomlToRegValGen : Lake.Toml.Value → Except String RegValGen
   | .integer _ i => .ok (.number i)
   | .string _ s => .ok (.string s)
@@ -47,8 +53,14 @@ partial def tomlToRegValGen : Lake.Toml.Value → Except String RegValGen
   | _ => .error "Failed to parse register value"
 
 /--
-Parse one element of `[[registers]]`. Representing an initial assignment
-of one threads registers.
+Parse a register mapping table e.g.
+  _PC = 0x500
+  "R0" = 0x1000
+  "R1" = 0x100
+  "R2" = 0x2a
+  "R3" = 0x1000
+  "R4" = 0x200
+  "R5" = 1
 -/
 def tomlToThreadRegisters (regs : Lake.Toml.Table)
     : Except String (List (String × RegValGen)) := do
@@ -56,14 +68,65 @@ def tomlToThreadRegisters (regs : Lake.Toml.Table)
   pure a.toList
 
 /--
-Parse `[[registers]]` or `[[termCond]]`. Representing an assignment of register
-in a number of threads.
+Parse registers for all threads e.g.
+  ["0".regs]
+    _PC = 0x500
+    "R0" = 0x1000
+    "R1" = 0x100
+  ["1".regs]
+    _PC = 0x600
+    "R0" = 0x1000
+    "R1" = 0x100
 -/
-def tomlToRegisters (threads : Array Lake.Toml.Value)
-    : Except String (List (List (String × RegValGen))) :=
-  threads.toList.mapM (fun threadRegs => match threadRegs with
-    | .table _ t => tomlToThreadRegisters t
-    | _ => Except.error "Failed to parse register list")
+def tomlToRegisters (threads : Lake.Toml.Table)
+    : Except String (List (List (String × RegValGen))) := do
+  let threadTables ← threads.items.toList.filterMap (fun (k, v) => match (k.toString false).toNat? with
+    | .some tid => .some (tid, v)
+    | .none => .none)
+  |>.mapM (fun (tid, v) => match v with
+    | .table _ t => return (tid, t)
+    | _ => Except.error "Failed to parse thread register: expected table")
+  threadTables.mergeSort (fun a b => a.1 <= b.1)
+  |>.mapIdxM (fun i (tid, t) =>
+    if i != tid
+    then Except.error s!"Missing thread '{i}'"
+    else do
+      let regs ← match t.find? `regs with
+        | .some (.table _ regs) => pure regs
+        | _ => Except.error "Failed to parse thread register: expected regs table"
+      tomlToThreadRegisters regs
+  )
+
+/--
+Termination condition used to be an arbitrary predicate on register state,
+but it has since changed to a list of "breakpoints" on each thread.
+When a thread reaches any one of its breakpoints, it is considered terminated.
+e.g.
+  ["0"]
+    breakpoints = [0x508]
+  ["1"]
+    breakpoints = [0x608]
+-/
+def tomlToTermCond (threads : Lake.Toml.Table)
+    : Except String (List (List Nat)) := do
+  let threadTables ← threads.items.toList.filterMap (fun (k, v) => match (k.toString false).toNat? with
+    | .some tid => .some (tid, v)
+    | .none => .none)
+  |>.mapM (fun (tid, v) => match v with
+    | .table _ t => return (tid, t)
+    | _ => Except.error "Failed to parse thread register: expected table")
+  threadTables.mergeSort (fun a b => a.1 <= b.1)
+  |>.mapIdxM (fun i (tid, t) =>
+    if i != tid
+    then Except.error s!"Missing thread '{i}'"
+    else
+      match t.find? `breakpoints with
+      | .some (.array _ breakpoints) => breakpoints.toList.mapM (fun b => match b with
+        | .integer _ i => return i
+        | _ => Except.error "Breakpoint must be integer")
+      | _ => Except.error "Failed to parse thread register: expected breakpoints array"
+  )
+
 
 /-- Parse a memory block. e.g. an element of `[[memory]]`. -/
 def tomlToMemoryBlock (table : Lake.Toml.Table) : Except String MemoryBlock := do
@@ -103,117 +166,70 @@ def tomlToMemory (memory : Array Lake.Toml.Value) : Except String (List MemoryBl
     | .table _ t => tomlToMemoryBlock t
     | _ => Except.error "Failed to parse memory block")
 
-/-- Parse a condition on a register. e.g. `{ op = "eq", val = 0x1 }` or `0x1`. -/
-def tomlToFinalRegisterConditions (table : Lake.Toml.Table)
-    : Except String (List (String × FinalRegisterCondition)) :=
-  table.items.toList.mapM (fun (reg, cond) => do
-    let reg := reg.toString false
-    match cond with
-      | .integer _ n =>
-        let val := RegValGen.number n
-        pure (reg, FinalRegisterCondition.regEq val)
-      | .table _ cond =>
-        let op ← tomlFindStringElse cond `op "Failed to parse register condition op"
-        let val ← match cond.find? `val with
-        | .some v => tomlToRegValGen v
-        | .none => Except.error "Failed to find register condition value"
-        match op with
-        | "eq" => pure (reg, FinalRegisterCondition.regEq val)
-        | "ne" => pure (reg, FinalRegisterCondition.regNe val)
-        | _ => Except.error s!"Invalid final register condition op '{op}'"
-      | _ => Except.error "Failed to parse final register condition"
-  )
+/--
+Parse a final condition location e.g.
+  "1:R5"
+or
+  "x"
+-/
+def stringToFinalConditionLoc (s : String) : Except String FinalConditionLoc :=
+  match s.splitOn ":" with
+  | [thread, reg] =>
+    match String.toNat? thread with
+    | .none => Except.error s!"Failed to parse final condition register location '{s}'"
+    | .some thread => return .reg thread reg
+  | [sym] => return .mem sym
+  | _ => Except.error s!"Failed to parse final condition location '{s}'"
 
-/-- Parse a condition on a thread. e.g. `{ R5 = { op = "eq", val = 0x1 } }` -/
-def tomlToFinalThreadConditions (table : Lake.Toml.Table)
-    : Except String (List FinalThreadCondition) := do
-  let threadsTable ← match table.find? `regs with
-    | some (.table _ t) => pure t
-    | none => pure table
-    | _ => Except.error "Failed to parse register final condition"
-  threadsTable.items.toList.filterMapM (fun (tid, regs) => do
-    let tid := tid.toString false
-    let tid ← match tid.toNat? with
-      | some tid => pure tid
-      | none => return .none
-    let regConditions ← match regs with
-      | .table _ regsTable => tomlToFinalRegisterConditions regsTable
-      | _ => Except.error "Failed to parse final register conditions"
-    return (.some {tid, regConditions})
-    )
+mutual
 
-/-- Parse a condition on a memory word. -/
-def tomlToFinalMemoryWordCondition (toml : Lake.Toml.Value)
-    : Except String FinalMemoryWordCondition :=
-  match toml with
-  | .table _ condTable => do
-    let op ← tomlFindStringElse condTable `op "Failed to parse final memory condition op"
-    let val ← tomlFindNatElse condTable `val "Failed to parse final memory condition value"
-    match op with
-    | "eq" => pure (.memEq val)
-    | "ne" => pure (.memNe val)
-    | _ => Except.error "Invalid op in final memory condition"
-  | .integer _ i => do
-    if i < 0 then Except.error "Failed to parse negative final memory condition"
-    pure (.memEq i.toNat)
-  | _ => Except.error "Failed to parse final memory word condition"
-
-/-- Parse final memory conditions. -/
-def tomlToFinalMemoryConditions (table : Lake.Toml.Table) (mem : List MemoryBlock)
-    : Except String (List FinalMemoryCondition) :=
-  match table.find? `mem with
-  | .some (.table _ memTable) =>
-    memTable.items.toList.mapM (fun (sym,v) => do
-      let sym := sym.toString false
-      let condition ← tomlToFinalMemoryWordCondition v
-      let block ← match List.find? (fun b => b.sym == some sym) mem with
-        | .some b => pure b
-        | .none => Except.error s!"Undefine memory symbol in final condition '{sym}'"
-      pure { sym, addr := block.addr, size := block.step, condition }
-    )
-  | .none => pure []
-  | _ => Except.error "Failed to parse final memory condition"
-
-/-- Parse a final condition e.g. `observable.1.R5 = { op = "eq", val = 0x1 }`. -/
-def tomlToFinalCondition (condition : Lake.Toml.Table) (mem : List MemoryBlock)
+-- TODO: prove termination.
+/-- Parse a final condition e.g. `{and = [{"1:R5" = 1}, {"1:R2" = 0}]}`. -/
+partial def tomlToFinalCondition (condition : Lake.Toml.Table)
     : Except String FinalCondition := do
-  match (condition.find? `observable, condition.find? `unobservable) with
-  | (some (.table _ table), none) =>
-    let threadConditions ← tomlToFinalThreadConditions table
-    let memoryConditions ← tomlToFinalMemoryConditions table mem
-    pure (.observable threadConditions memoryConditions)
-  | (none, some (.table _ table)) =>
-    let threadConditions ← tomlToFinalThreadConditions table
-    let memoryConditions ← tomlToFinalMemoryConditions table mem
-    pure (.observable threadConditions memoryConditions)
-  | (some _, some _) => Except.error "Final condition can't have both observable and unobservable"
-  | (none, none) => Except.error "Failed to parse empty final condition"
-  | _ => Except.error "Failed to parse final condition"
+  match condition.items.toList with
+  | [(`and, .array _ a)] =>
+    return .and (← tomlToFinalConditions a)
+  | [(`or, .array _ a)] =>
+    return .or (← tomlToFinalConditions a)
+  | [(`not, .table _ c)] =>
+    return .not (← tomlToFinalCondition c)
+  | [(`and, _)] => Except.error "Failed to parse final condition: `and` expects array"
+  | [(`or, _)] => Except.error "Failed to parse final condition: `or` expects array"
+  | [(`not, _)] => Except.error "Failed to parse final condition: `not` expects table"
+  | [(k, .string _ s)] =>
+    return .equalLocLoc (← stringToFinalConditionLoc (k.toString false)) (← stringToFinalConditionLoc s)
+  | [(k, .integer _ v)] =>
+    return .equalLocLiteral (← stringToFinalConditionLoc (k.toString false)) v
+  | _ => Except.error s!"Failed to parse final condition: expected singleton assertion map"
 
-/-- Parse `[[outcome]]`. Representing a list of final conditions. -/
-def tomlToFinalConditions (finals : Array Lake.Toml.Value) (mem : List MemoryBlock)
+partial def tomlToFinalConditions (finals : Array Lake.Toml.Value)
     : Except String (List FinalCondition) :=
   finals.toList.mapM (fun condition => match condition with
-    | .table _ t => tomlToFinalCondition t mem
+    | .table _ t => tomlToFinalCondition t
     | _ => Except.error "Failed to parse final conditions")
+
+end
 
 /-- Parse the toml file in '.archsem.toml' format. -/
 def tomlToTestRepr (toml : Lake.Toml.Table) : Except String TestRepr := do
   let arch ← tomlFindStringElse toml `arch "Failed to parse 'arch' field"
   let name ← tomlFindStringElse toml `name "Failed to parse 'name' field"
-  let registers ← match toml.find? `registers with
-    | .some (.array _ a) => tomlToRegisters a
-    | _ => Except.error "Failed to parse 'registers' field"
-  let termCond ← match toml.find? `termCond with
-    | .some (.array _ a) => tomlToRegisters a
-    | _ => Except.error "Failed to parse 'termCond' field"
+  let (registers, termCond) ← match toml.find? `thread with
+    | .some (.table _ t) => do
+      pure ((← tomlToRegisters t), (← tomlToTermCond t))
+    | _ => Except.error "Failed to find any threads"
   let memory ← match toml.find? `memory with
     | .some (.array _ a) => tomlToMemory a
     | _ => Except.error "Failed to parse 'memory' field"
-  let finalConditions ← match toml.find? `outcome with
-    | .some (.array _ a) => tomlToFinalConditions a memory
-    | _ => Except.error "Failed to parse 'outcome' field"
-  pure { arch, name, registers, termCond, memory, finalConditions }
+  let kind : TestKind := .exists -- TODO: parse from file, default to exists
+  let finalCondition ← match toml.find? `final with
+    | .some (.table _ t) =>
+      match t.find? `assertion with
+      | .some (.table _ t) => tomlToFinalCondition t
+      | _ => Except.error "Failed to parse 'assertion' field"
+    | _ => Except.error "Failed to parse 'final' field"
+  pure { arch, name, registers, termCond, memory, kind, finalCondition }
 
 /-- Read and parse a toml file. -/
 def readTomlFile (fname : System.FilePath) : IO Lake.Toml.Table := do

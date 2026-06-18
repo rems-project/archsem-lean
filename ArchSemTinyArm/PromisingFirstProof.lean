@@ -153,7 +153,6 @@ theorem enumerate_result_promises_monotonic_fuel {nThreads : Nat}
     exists_eq_right, ListSet.any_eq_false, Bool.not_eq_eq_eq_not, Bool.not_false, Prod.forall,
     Bool.forall_bool, Bool.false_eq_true, imp_false, implies_true, and_true, forall_exists_index,
     and_imp]
-  -- simp [List.mem_eraseDups] -- TODO: using simp like this is bad practice.
   intro promises pmstate h h_s_in_promises h_fuel_remains
   cases h with
   | inl h =>

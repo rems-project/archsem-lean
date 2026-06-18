@@ -114,6 +114,9 @@ class ArchExtra where
   /- Registers are named by string in the litmus test format. -/
   register_of_string : String → Except String Arch.register
   register_type_of_gen (reg : Arch.register) : RegValGen → Except String (Arch.register_type reg)
+  register_to_nat {reg : Arch.register} : Arch.register_type reg → Except String Nat
+  /- Litmus test termination condition needs to know which register is the PC. -/
+  register_pc : Arch.register
   /- Architecture types get Repr instances to make debugging easier. -/
   addr_space_repr : Repr Arch.addr_space
   register_repr : Repr Arch.register

@@ -24,7 +24,7 @@ abbrev Address := BitVec Arch.addr_size
 An architecture memory map. We assume bytes of 8-bits indexed by a bit vector.
 -/
 def MemoryMap := Std.ExtTreeMap Address (BitVec 8)
-deriving DecidableEq, Ord
+deriving Repr, DecidableEq, Ord
 
 instance : Std.TransCmp (compare : MemoryMap → MemoryMap → Ordering) := by
   change Std.TransCmp (compare : Std.ExtTreeMap Address (BitVec 8) → Std.ExtTreeMap Address (BitVec 8) → Ordering)

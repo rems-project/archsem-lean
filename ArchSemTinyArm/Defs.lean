@@ -173,12 +173,22 @@ def registerTypeOfGen (reg : Arch.register)
     pure (h ▸ BitVec.ofNat 64 n)
   | _ => .error "Register value must be number"
 
+private def registerToNat {reg : Arch.register} (val : Arch.register_type reg)
+    : Except String Nat :=
+  let h : Arch.register_type reg = BitVec 64 := by
+    simp [Arch.register_type, RegisterType]
+    split <;> rfl
+  let bitvec : BitVec 64 := (h ▸ val)
+  .ok (bitvec.toNat)
+
 /-- The TinyArm ArchExtra instance. Infers instances from the context. -/
 instance : ArchExtra := by
   -- Split the goal into ArchExtra fields.
   refine'
     { register_of_string := registerOfString
     , register_type_of_gen := registerTypeOfGen
+    , register_to_nat := registerToNat
+    , register_pc := Register._PC
     , .. }
   all_goals try first
     -- Solve trivial cases

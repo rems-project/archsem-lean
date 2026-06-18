@@ -1,10 +1,39 @@
 arch = "Arm"
 name = "S+dmb.sy+po"
 
-[[registers]]
-  _PC = 9472
-  "R3" = 5376
-  "R1" = 1280
+[[memory]]
+  kind = "code"
+  addr = 0x3000
+  step = 4
+  data = [0xd2800040, 0xf9000020, 0xd5033fbf, 0xd2800022, 0xf9000062]
+
+[[memory]]
+  kind = "code"
+  addr = 0x3014
+  step = 4
+  data = [0xf9400001, 0xd2800022, 0xf9000062]
+
+[[memory]]
+  sym = "x"
+  addr = 0x1000
+  step = 8
+  data = 0
+
+[[memory]]
+  sym = "y"
+  addr = 0x2000
+  step = 8
+  data = 0
+
+[thread]
+
+[thread."0"]
+  breakpoints = [0x3014]
+
+[thread."0".regs]
+  _PC = 0x3000
+  "R3" = 0x2000
+  "R1" = 0x1000
   "R0" = 0
   "R2" = 0
   "R4" = 0
@@ -35,11 +64,14 @@ name = "S+dmb.sy+po"
   "R29" = 0
   "R30" = 0
 
-[[registers]]
-  _PC = 13568
-  "R3" = 1280
+[thread."1"]
+  breakpoints = [0x3020]
+
+[thread."1".regs]
+  _PC = 0x3014
+  "R3" = 0x1000
   "R1" = 0
-  "R0" = 5376
+  "R0" = 0x2000
   "R2" = 0
   "R4" = 0
   "R5" = 0
@@ -69,35 +101,5 @@ name = "S+dmb.sy+po"
   "R29" = 0
   "R30" = 0
 
-[[memory]]
-  kind = "code"
-  addr = 9472
-  step = 4
-  data = [3531604032, 4177526816, 3573759935, 3531604002, 4177526882]
-
-[[memory]]
-  kind = "code"
-  addr = 13568
-  step = 4
-  data = [4181721089, 3531604002, 4177526882]
-
-[[memory]]
-  sym = "x"
-  addr = 1280
-  step = 8
-  data = 0
-
-[[memory]]
-  sym = "y"
-  addr = 5376
-  step = 8
-  data = 0
-
-[[termCond]]
-  _PC = 9492
-
-[[termCond]]
-  _PC = 13580
-
-[[outcome]]
-  observable = {"1" = {"R1" = 1}, mem = {x = 2}}
+[final]
+  assertion = {and = [{x = 2}, {"1:X1" = 1}]}

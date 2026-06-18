@@ -23,6 +23,7 @@ def naiveModel : ComputationalTerminatingModel :=
 def promiseFirstModel : ComputationalTerminatingModel :=
   Promising.createPromiseFirstModel isem fuel
 
+def testConfig : String := "./litmus_tests/TinyArm.toml"
 def regressionLitmusTests : List (Bool × String) := [
   (false, "./litmus_tests/arm-small/SB+dmb.sys.archsem.toml"),
   (false, "./litmus_tests/arm-small/R+dmb.sys.archsem.toml"),
@@ -47,6 +48,7 @@ def regressionLitmusTests : List (Bool × String) := [
   (false, "./litmus_tests/arm-small/LB+dmb.sys.archsem.toml"),
 ]
 
-#eval regressionLitmusTests.forM (fun (allowed,fname)=> guardTestFromFile allowed promiseFirstModel fname)
+#eval regressionLitmusTests.forM (fun (allowed,fname) =>
+  guardTestFromFile testConfig allowed promiseFirstModel fname)
 
 end ArchSemTinyArm.Promising.Test

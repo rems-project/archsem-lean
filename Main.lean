@@ -5,6 +5,7 @@
 import Cli
 import ArchSem.LitmusTest.Parse
 import ArchSem.LitmusTest.Run
+import ArchSem.LitmusTest.Basic
 import ArchSem.TerminatingModel
 import ArchSemTinyArm.Promising
 
@@ -21,12 +22,16 @@ def modelFromStr (fuel : Nat) : String → Option ComputationalTerminatingModel
   | _ => none
 
 def runTests (p : Cli.Parsed) : IO UInt32 := do
-  let testFnames : List System.FilePath := p.variableArgsAs! String |>.toList
-  let fuel : Nat ← match p.flag? "fuel" |>.bind (Cli.Parsed.Flag.as? · Nat) with
-    | .some fuel => pure fuel
+  let configFname : System.FilePath ← match p.flag? "config" |>.bind (Cli.Parsed.Flag.as? · String) with
+    | .some str => pure str
     | .none =>
-      IO.eprintln "Please specify fuel as a natural number."
+      IO.eprintln "Config unspecified."
       return 1
+  let config : LitmusTestConfig ← Config.readConfigFile configFname
+  let testFnames : List System.FilePath := p.variableArgsAs! String |>.toList
+  let fuel : Nat := match p.flag? "fuel" |>.bind (Cli.Parsed.Flag.as? · Nat) with
+    | .some fuel => fuel
+    | .none => config.defaultFuel
   let modelStr : String ← match p.flag? "model" |>.bind (Cli.Parsed.Flag.as? · String) with
     | .some str => pure str
     | .none =>
@@ -43,18 +48,27 @@ def runTests (p : Cli.Parsed) : IO UInt32 := do
   let errors : List String ← testFnames.filterMapM (fun fname => do
     (← IO.getStdout).flush
     (← IO.getStderr).flush
-    let test ← Parse.readTestFile fname
-    let result : Except String LitmusTestResult := Run.runLitmusTest model test
-    match result with
-    | .ok .allowed =>
-      IO.print s!"{test.name}\tOk\n"
-      return Option.none
-    | .ok (.forbidden _) =>
-      IO.print s!"{test.name}\tNo\n"
-      return Option.none
-    | .error msg =>
-      IO.eprintln s!"[{test.name}] Error: {msg}"
-      return Option.some msg
+    let testRepr ← Parse.readTestFile fname
+    let finalStates ← match Run.runLitmusTest model testRepr with
+      | .ok states => pure states
+      | .error msg =>
+        let msg := s!"[{testRepr.name}] Error: Failed to run test {msg}"
+        IO.eprintln msg
+        return .some msg
+    let results ← match prepareTestResults config testRepr finalStates with
+      | .ok results => pure results
+      | .error msg =>
+        let msg := s!"[{testRepr.name}] Error: Failed to prepare test results {msg}"
+        IO.eprintln msg
+        return .some msg
+    let mcompare : String ← match MCompare.testOutput testRepr results with
+      | .ok mcompare => pure mcompare
+      | .error msg =>
+        let msg := s!"[{testRepr.name}] Error: Failed to prepare mcompare {msg}"
+        IO.eprintln msg
+        return .some msg
+    IO.print mcompare
+    return Option.none
   )
   if errors == [] then
     pure 0
@@ -69,7 +83,7 @@ def litmusTestCmd : Cli.Cmd := `[Cli|
 
   FLAGS:
     model : String; "Name of model to use."
-    fuel : Nat; ""
+    config : String; "Config file to use."
 
   ARGS:
     ...tests : String; "Tests to run of the `.archsem.toml` format."
