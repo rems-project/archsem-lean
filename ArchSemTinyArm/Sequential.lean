@@ -68,7 +68,6 @@ def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialSt
     modify (fun s => { s with mem := mem})
     pure (.ok ())
   | .barrier _barrier => pure ()
-  | .choice n => NEStateM.chooseFin n
   | .clockCycle => modify (fun s => { s with cycleCount := s.cycleCount + 1 })
   | .getCycleCount => do pure (← get).cycleCount
   | .archException exception =>
@@ -81,12 +80,11 @@ def interpretEffect : (eff : InstructionEffect) → NEStateM String SequentialSt
   | .returnExecption => Except.error "Unsupported effect"
 
 /-- Interpret the given instruction semantics into the sequential models monad. -/
-def sequentialInterpreter : SailM Unit → NEStateM String SequentialState Unit
-  | .pure () => pure ()
-  | .impure (.error err) _cont => Except.error err.print
-  | .impure (.ok eff) cont => do
-    let x ← interpretEffect eff
-    sequentialInterpreter (cont x)
+def sequentialInterpreter : SailM Unit → NEStateM String SequentialState Unit :=
+  FreeM.liftM (fun
+    | .inl (.error err) => Except.error err.print
+    | .inl (.ok eff) => interpretEffect eff
+    | .inr choice => NEStateM.chooseFin choice)
 
 /-- A model state paired with a proof of its termination under the given condition. -/
 structure TerminatedSequentialState (termCond : TerminationCondition 1) where

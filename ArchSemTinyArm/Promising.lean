@@ -546,9 +546,6 @@ def runEffect (tid : Nat) (initmem : InitialMem) (eff : InstructionEffect)
     modify ({ · with threadState := {ts with visb := max ts.visb ts.vcap} })
     return ((), none)
   | .barrier b => Except.error s!"Unsupported barrier: {reprStr b}"
-  | .choice n => do
-    let x ← NEStateM.chooseFin n
-    return (x, none)
   | .archException exception =>
     Except.error s!"Architecture exception: {reprStr exception}"
   | .printMessage msg =>
@@ -604,8 +601,9 @@ into a non-deterministic state monad.
 def interpreter (handler : (eff : InstructionEffect) → NEStateM String σ eff.ret)
     : SailM α → NEStateM String σ α :=
   FreeM.liftM (fun
-    | .error err => Except.error err.print
-    | .ok eff => handler eff)
+    | .inl (.error err) => Except.error err.print
+    | .inl (.ok eff) => handler eff
+    | .inr choice => NEStateM.chooseFin choice)
 
 /--
 Run one instruction on thread `tid` using the instruction semantics provided by `isem`.
