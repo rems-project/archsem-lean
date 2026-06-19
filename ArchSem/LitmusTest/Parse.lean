@@ -11,6 +11,13 @@ import ArchSem.LitmusTest.Defs
 /-!
 This file implements parsing of '.archsem.toml' litmus tests.
 Some of the code is a bit messy because the test format keeps changing.
+
+  - [[thread.n.regs]]: Initial register state for thread n
+  - [[thread.n.breakpoints]]: Breakpoints for thread n
+  - [[memory]]: Initial memory contents
+  - [[final]]: Final condition
+    - [[kind]]: Test kind (exists/forall/notexists)
+    - [[assertion]]: The assertion in funky TOML syntax
 -/
 
 open ArchSem.LitmusTest
@@ -222,12 +229,18 @@ def tomlToTestRepr (toml : Lake.Toml.Table) : Except String TestRepr := do
   let memory ← match toml.find? `memory with
     | .some (.array _ a) => tomlToMemory a
     | _ => Except.error "Failed to parse 'memory' field"
-  let kind : TestKind := .exists -- TODO: parse from file, default to exists
-  let finalCondition ← match toml.find? `final with
-    | .some (.table _ t) =>
-      match t.find? `assertion with
-      | .some (.table _ t) => tomlToFinalCondition t
-      | _ => Except.error "Failed to parse 'assertion' field"
+  let (finalCondition, kind) ← match toml.find? `final with
+    | .some (.table _ t) => do
+      let finalCondition ← match t.find? `assertion with
+        | .some (.table _ t) => tomlToFinalCondition t
+        | _ => Except.error "Failed to parse 'assertion' field"
+      let kind ← match t.find? `kind with
+        | .some (.string _ "exists") => pure TestKind.exists
+        | .some (.string _ "forall") => pure TestKind.forall
+        | .some (.string _ "notexists") => pure TestKind.notExists
+        | .some _ => Except.error "Invalid test kind"
+        | .none => pure TestKind.exists -- Default to .exists
+      pure (finalCondition, kind)
     | _ => Except.error "Failed to parse 'final' field"
   pure { arch, name, registers, termCond, memory, kind, finalCondition }
 
