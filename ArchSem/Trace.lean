@@ -20,7 +20,7 @@ structure FreeM.Event (Eff : Type) [Effect Eff] where
   ret : Effect.ret call
 
 /-- Notation for constructing an Event. -/
-notation:40 call " &→ " ret => {call := call, ret := ret}
+notation:40 c " &→ " r => FreeM.Event.mk (call := c) (ret := r)
 
 namespace FreeM.Event
 

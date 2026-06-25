@@ -11,6 +11,10 @@ open Sail.ArchSem
 These instances are a bit of a hack. I want well-behaved ordering and hashing
 on architecture states, which means I need well-behaved ordering and hashing on
 tree maps.
+
+I've also added ordering on products and dependent products.
+
+TODO: clean this up and move it elsewhere?
 -/
 instance (α β : Type u) (cmp : α → α → Ordering) [Std.TransCmp cmp]
     [Hashable α] [Hashable β] : Hashable (Std.ExtTreeMap α β (cmp := cmp)) where
@@ -19,6 +23,71 @@ instance (α : Type u) (β : α → Type v) (cmp : α → α → Ordering) [Std.
     [Hashable α] [Hashable (Sigma β)] : Hashable (Std.ExtDTreeMap α β (cmp := cmp)) where
   hash v := hash v.toList
 instance (α : Type u) (β : Type v) [Ord α] [Ord β] : Ord (α × β) := lexOrd
+instance (α : Type u) (β : α → Type v) [Ord α] [DecidableEq α] [(a : α) → Ord (β a)] :
+    Ord (Sigma β) where
+  compare x y :=
+    if h : x.1 = y.1 then
+      compare (h ▸ x.2) y.2
+    else
+      compare x.1 y.1
+instance (α : Type u) (β : α → Type v) [Ord α] [DecidableEq α] [(a : α) → Ord (β a)]
+    [Std.OrientedCmp (compare : α → α → Ordering)]
+    [(a : α) → Std.OrientedCmp (compare : β a → β a → Ordering)] :
+    Std.OrientedCmp (compare : Sigma β → Sigma β → Ordering) where
+  eq_swap {x y} := by
+    simp [compare]
+    split <;> rename_i hIdx
+    · cases x with
+      | mk xIdx xVal =>
+        cases y with
+        | mk yIdx yVal =>
+          simp at hIdx
+          subst yIdx
+          simp
+          exact Std.OrientedCmp.eq_swap (cmp := (compare : β xIdx → β xIdx → Ordering))
+            (a := xVal) (b := yVal)
+    · have hyx : ¬y.1 = x.1 := fun h => hIdx h.symm
+      simp [hyx]
+      exact Std.OrientedCmp.eq_swap (cmp := (compare : α → α → Ordering))
+        (a := x.1) (b := y.1)
+instance (α : Type u) (β : α → Type v) [Ord α] [DecidableEq α] [(a : α) → Ord (β a)]
+    [Std.TransCmp (compare : α → α → Ordering)]
+    [Std.LawfulEqCmp (compare : α → α → Ordering)]
+    [(a : α) → Std.TransCmp (compare : β a → β a → Ordering)] :
+    Std.TransCmp (compare : Sigma β → Sigma β → Ordering) where
+  isLE_trans {x y z} hxy hyz := by
+    have hxyIdxLE : (compare x.1 y.1).isLE := by
+      by_cases hIdx : x.1 = y.1
+      · rw [hIdx]
+        simp [Std.ReflCmp.compare_self]
+      · simpa [compare, hIdx] using hxy
+    have hyzIdxLE : (compare y.1 z.1).isLE := by
+      by_cases hIdx : y.1 = z.1
+      · rw [hIdx]
+        simp [Std.ReflCmp.compare_self]
+      · simpa [compare, hIdx] using hyz
+    by_cases hxz : x.1 = z.1
+    · have hxyIdx : x.1 = y.1 := by
+        apply Std.LawfulEqCmp.eq_of_compare (cmp := (compare : α → α → Ordering))
+        apply Ordering.eq_eq_of_isLE_of_isLE_swap
+        · exact hxyIdxLE
+        · rw [← hxz] at hyzIdxLE
+          rw [← Std.OrientedCmp.eq_swap (cmp := (compare : α → α → Ordering)) (a := y.1) (b := x.1)]
+          exact hyzIdxLE
+      cases x with
+      | mk xIdx xVal =>
+        cases y with
+        | mk yIdx yVal =>
+          cases z with
+          | mk zIdx zVal =>
+            simp at hxyIdx hxz
+            subst yIdx
+            subst zIdx
+            simp [compare]
+            simp [compare] at hxy hyz
+            exact Std.TransCmp.isLE_trans hxy hyz
+    · have hxzIdxLE : (compare x.1 z.1).isLE := Std.TransCmp.isLE_trans hxyIdxLE hyzIdxLE
+      simpa [compare, hxz] using hxzIdxLE
 instance (α β : Type u) (cmp : α → α → Ordering) [Std.TransCmp cmp]
     [Ord α] [Ord β] : Ord (Std.ExtTreeMap α β (cmp := cmp)) where
   compare := compareOn Std.ExtTreeMap.toList
