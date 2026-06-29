@@ -8,16 +8,29 @@ import Sail.ArchSem
 import ArchSem.Defs
 import ArchSem.TerminatingModel
 
+/-!
+This file defines architecture-generic machinery for defining axiomatic
+memory consistency models.
+-/
+
 open Sail.ArchSem
 open ArchSem.TerminatingModel
 
--- TODO: add comments
-
 namespace ArchSem.CandidateExecutions
 
+/-
+The axiomatic models are currently based on relations built using an ExtTreeSet
+from the standard library. This type was chosen as it is extensional and
+elements can be enumerated.
+
+The functions in this section are helper functions on the ExtTreeSet that should
+probably be in the standard library but are not.
+
+TODO: move these ExtTreeSet functions into the standard library or into a
+more sensible locatio.
+-/
 section TreeSetHelpers
 
--- TODO: why is this not in lean standard libs?
 def subset {α : Type} {cmp : α → α → Ordering} [Std.TransCmp cmp]
     (r₁ r₂ : Std.ExtTreeSet α cmp) : Prop :=
   ∀ (a : α), a ∈ r₁ → a ∈ r₂
@@ -64,30 +77,48 @@ instance {α : Type} {cmp : α → α → Ordering} [Std.TransCmp cmp] [Std.Lawf
     intro x h_mem
     exact decide_eq_true (h_forall x (Std.ExtTreeSet.mem_toList.mp h_mem))
 
+/--
+Compute a cartesian set product.
+-/
+def setProd {cmp : α → α → Ordering} [Std.TransCmp cmp]
+    {cmp' : α × α → α × α → Ordering} [Std.TransCmp cmp']
+    (a b : Std.ExtTreeSet α cmp) : Std.ExtTreeSet (α × α) cmp' :=
+  a.foldl (fun prod a =>
+    b.foldl (fun prod b =>
+      prod.insert (a, b)
+    ) prod
+  ) Std.ExtTreeSet.empty
+
 end TreeSetHelpers
 
+/-- The binray relation type used for axiomatic models. -/
 abbrev Rel (α : Type) (cmp : α × α → α × α → Ordering := by exact compare)
   := Std.ExtTreeSet (α × α) cmp
 
 namespace Rel
 
+/-- Set-wise union of binary relations. -/
 def union {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r₁ r₂ : Rel α cmp) : Rel α cmp :=
   Std.ExtTreeSet.union r₁ r₂
 
+/-- Set-wise intersection of binary relations. -/
 def inter {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r₁ r₂ : Rel α cmp) : Rel α cmp :=
   Std.ExtTreeSet.inter r₁ r₂
 
+/-- Set-wise difference of binary relations. -/
 def diff {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r₁ r₂ : Rel α cmp) : Rel α cmp :=
   Std.ExtTreeSet.diff r₁ r₂
 
+/-- Construct a diagonal binary relation from a set. i.e. `{(x, x) | ∀ x ∈ S}`. -/
 def diag {α : Type} {cmp' : α → α → Ordering} [Std.TransCmp cmp']
     {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (s : Std.ExtTreeSet α cmp') : Rel α cmp :=
   s.foldl (fun acc x => acc.insert (x, x)) Std.ExtTreeSet.empty
 
+/-- Compute the transitive closure of a relation. i.e. `R⁺`. -/
 def transitiveClosure {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r : Rel α cmp) : Rel α cmp :=
   let lA := r.toList.foldr (fun (x, y) acc => x :: y :: acc) []
@@ -102,7 +133,8 @@ def transitiveClosure {α : Type} {cmp : α × α → α × α → Ordering} [St
         ) s
     ) r
 
--- TODO: use maps to make this faster.
+-- TODO: use maps to make `seq` faster.
+/-- Sequencing of binray relations. -/
 def seq {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     [DecidableEq α] (r₁ r₂ : Rel α cmp) : Rel α cmp :=
   r₁.foldl (fun acc (x, y) =>
@@ -111,6 +143,7 @@ def seq {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp
     ) acc
   ) Std.ExtTreeSet.empty
 
+/-- Reversing all arrows in a binary relation. -/
 def inv {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r : Rel α cmp) : Rel α cmp :=
   r.foldl (fun acc (x, y) => acc.insert (y, x)) Std.ExtTreeSet.empty
@@ -119,10 +152,12 @@ instance {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cm
     : Inv (Rel α cmp) where
   inv := inv
 
+/-- Custom notation for manipulating binary relations.  -/
 infixl:66 " ; " => seq
 prefix:75 "Δ" => diag
 postfix:76 "⁺" => transitiveClosure
 
+/-- Proposition for weather a binary realtion is injective. -/
 def injective {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r : Rel α cmp) : Prop :=
   ∀ (x y z : α), (x, z) ∈ r → (y, z) ∈ r → x = y
@@ -154,6 +189,7 @@ instance {α : Type} {cmp : α × α → α × α → Ordering}
         subst h_z
         exact h_injective x y z (Std.ExtTreeSet.mem_toList.mp h_arrow₁) (Std.ExtTreeSet.mem_toList.mp h_arrow₂)
 
+/-- Proposition for weather a binary realtion is transitive. -/
 def transitive {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r : Rel α cmp) : Prop :=
   ∀ (x y z : α), (x, y) ∈ r → (y, z) ∈ r → (x, z) ∈ r
@@ -186,6 +222,7 @@ instance {α : Type} {cmp : α × α → α × α → Ordering}
         subst h_y
         exact h_transitive x y z (Std.ExtTreeSet.mem_toList.mp h_arrow₁) (Std.ExtTreeSet.mem_toList.mp h_arrow₂)
 
+/-- Proposition for weather a binary realtion is irreflexive. -/
 def irreflexive {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r : Rel α cmp) : Prop :=
   ∀ (x : α), (x, x) ∉ r
@@ -212,6 +249,7 @@ instance {α : Type} {cmp : α × α → α × α → Ordering}
       subst h_xy
       exact h_irreflexive x (Std.ExtTreeSet.mem_toList.mp h_arrow)
 
+/-- Proposition for weather a binary realtion is acyclic. -/
 def acyclic {α : Type} {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
     (r : Rel α cmp) : Prop :=
   r⁺.irreflexive
@@ -222,11 +260,13 @@ instance {α : Type} {cmp : α × α → α × α → Ordering}
   rw [acyclic]
   infer_instance
 
+/-- Get the domain of a binray relation. -/
 def domain {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
   {cmp' : α → α → Ordering} [Std.TransCmp cmp']
   (r : Rel α cmp) : Std.ExtTreeSet α cmp' :=
   r.foldr (fun (x,_) s => s.insert x) Std.ExtTreeSet.empty
 
+/-- Get the range of a binray relation. -/
 def range {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
   {cmp' : α → α → Ordering} [Std.TransCmp cmp']
   (r : Rel α cmp) : Std.ExtTreeSet α cmp' :=
@@ -234,13 +274,26 @@ def range {cmp : α × α → α × α → Ordering} [Std.TransCmp cmp]
 
 end Rel
 
+/-- An "Instruction Monad" encoding ISA semantics. -/
 abbrev IMon [Arch] := FreeM (InstructionEffect ⊕ FinChoice)
+
+/--
+An "Instruction Event" representing an instruction effect paired with its
+return value.
+-/
 def IEvent [Arch] : Type := FreeM.Event InstructionEffect
+
+/--
+An "Instruction Trace" representing a (possibly partial) recording of the
+execution of an instruction.
+-/
 def ITrace [Arch] : Type → Type := FreeM.Trace InstructionEffect
 
 namespace IEvent
 
 variable [Arch]
+
+/- Helper functions for getting information about an `IEvent`. -/
 
 def getReg (ev : IEvent) : Option Arch.register :=
   match ev.call with
@@ -487,6 +540,10 @@ instance : Decidable (is_unsupported_event ev) := by
 
 end IEvent
 
+/--
+Proposition for weather the trace could have been produced from a particular
+ISA.
+-/
 inductive ITrace.matches_isa [Arch]
     : IMon α → ITrace α → Prop
   | stopped (f : FreeM (InstructionEffect ⊕ FinChoice) α) : matches_isa f .stopped
@@ -499,12 +556,17 @@ inductive ITrace.matches_isa [Arch]
   | choose (n : Nat) (i : Fin n) (k : Fin n → IMon α) (t : ITrace α)
       : matches_isa (k i) t → matches_isa (.impure (.inr n) k) t
 
+/-- An index to an event from some instruction Event from some thread. -/
 structure Eid where
+  /-- Thread ID. -/
   tid : Nat
+  /-- Instruction ID. -/
   iid : Nat
+  /-- Instruction Event ID. -/
   ieid : Nat
 deriving DecidableEq
 
+/-- Defined an ordering on Eid so they can be stored in TreeMap. -/
 def Eid.compare (a b : Eid) : Ordering :=
   (Ord.compare : (Nat × Nat × Nat) → (Nat × Nat × Nat) → Ordering)
     (a.tid, a.iid, a.ieid) (b.tid, b.iid, b.ieid)
@@ -550,8 +612,10 @@ instance : Std.LawfulEqCmp (compare : Eid → Eid → Ordering) := by
   change Std.LawfulEqCmp Eid.compare
   infer_instance
 
--- TODO: Eid ordering relations
-
+/--
+A pre-candidate-execution is the recording of events from all threads without
+additional information such as coherence.
+-/
 structure PreCand [Arch] [ArchExtra] (nThreads : Nat) where
   init : ArchState nThreads
   events : Vector (List (ITrace Unit)) nThreads
@@ -560,42 +624,57 @@ namespace PreCand
 
 variable [Arch] [ArchExtra]
 
+/--
+Could the pre-candidate-execution's instruction traces have been produced from
+an ISA.
+-/
 def matches_isa (p : PreCand nThreads) (isem : IMon Unit) : Prop :=
   ∀ (tid : Fin nThreads), ∀ trace ∈ p.events[tid], trace.matches_isa isem
 
+/--
+Are all the instruction traces complete.
+-/
 def is_complete (p : PreCand nThreads) : Prop :=
   ∀ (tid : Fin nThreads), ∀ trace ∈ p.events[tid], trace.snd = .ret ()
 
+/-- Find an instruction trace from a thread and instruction id. -/
 def lookupInstruction (p : PreCand nThreads) (tid iid : Nat)
     : Option (ITrace Unit) := do
   let threadTraces ← p.events[tid]?
   threadTraces[iid]?
 
+/-- Get a list of all instructions indexed by their thread and instruction id. -/
 def instructionList (p : PreCand nThreads) : List (Nat × Nat × ITrace Unit) :=
   p.events.toList.mapIdx
     (fun tid traces => traces.mapIdx (fun iid trace => (tid, iid, trace)))
   |>.flatten
 
+-- TODO: prove
 theorem lookup_instruction_list (p : PreCand nThreads) (tid iid : Nat) (t : ITrace Unit)
     : lookupInstruction p tid iid = .some t ↔ (tid, iid, t) ∈ instructionList p := by
   sorry
 
+/-- Find an instruction event from its index. -/
 def lookupIEvent (p : PreCand nThreads) (tid iid ieid : Nat) : Option IEvent := do
   let inst ← p.lookupInstruction tid iid
   inst.fst[ieid]?
 
+/-- Get a list of all instruction events paired with their index. -/
 def iEventList (p : PreCand nThreads) : List (Nat × Nat × Nat × IEvent) :=
   p.instructionList.map
     (fun (tid, iid, trace) => trace.fst.mapIdx (fun ieid ev => (tid, iid, ieid, ev)))
   |>.flatten
 
+-- TODO: prove
 theorem lookup_ievent_list (p : PreCand nThreads) (tid iid ieid : Nat) (ev : IEvent)
     : lookupIEvent p tid iid ieid = .some ev ↔ (tid, iid, ieid, ev) ∈ p.iEventList := by
   sorry
 
+/-- Get a list of all instruction events paired with their index. -/
 def iEventList' (p : PreCand nThreads) : List (Eid × IEvent) :=
   p.iEventList |>.map (fun (tid, iid, ieid, ev) => ({tid, iid, ieid}, ev))
 
+/-- Does an Eid point to a valid instruction event. -/
 def eid_valid (p : PreCand nThreads) (eid : Eid) : Prop :=
   (lookupIEvent p eid.tid eid.iid eid.ieid).isSome
 
@@ -612,6 +691,7 @@ instance : GetElem (PreCand nThreads) Eid IEvent eid_valid where
        rw [←Option.not_isSome_iff_eq_none] at h_lookup
        contradiction
 
+/-- Get the Eid of all instructions that match the proposition. -/
 def collectEidWith (f : Eid → IEvent → Prop) (p : PreCand nThreads)
     [h : ∀ eid ev, Decidable (f eid ev)]
     : Std.ExtTreeSet Eid :=
@@ -621,8 +701,11 @@ def collectEidWith (f : Eid → IEvent → Prop) (p : PreCand nThreads)
     |>.map Prod.fst
   )
 
+/-- Get a set of all valid eid. -/
 def eids (p : PreCand nThreads) : Std.ExtTreeSet Eid :=
   p.collectEidWith (fun _ _ => True)
+
+/- Helper functions for getting event id's. -/
 
 def regReads (p : PreCand nThreads) : Std.ExtTreeSet Eid :=
   p.collectEidWith (fun _ ev => IEvent.is_reg_read ev)
@@ -668,6 +751,10 @@ def cacheOps (p : PreCand nThreads) : Std.ExtTreeSet Eid :=
 def tlbOps (p : PreCand nThreads) : Std.ExtTreeSet Eid :=
   p.collectEidWith (fun _ ev => IEvent.is_tlb_op ev)
 
+/--
+Get the register map that a thread will have after execution all the
+instructions in its trace.
+-/
 def finalThreadRegisterMap (p : PreCand nThreads) (tid : Fin nThreads) : RegisterMap :=
   p.events[tid].foldl (fun regMap iTrace =>
     iTrace.fst.foldl (fun regMap event =>
@@ -681,9 +768,15 @@ def finalThreadRegisterMap (p : PreCand nThreads) (tid : Fin nThreads) : Registe
   )
   p.init.regs[tid]
 
+/--
+Get final register states for every thread.
+-/
 def finalRegisterMaps (p : PreCand nThreads) : Vector RegisterMap nThreads :=
   Vector.ofFn (finalThreadRegisterMap p)
 
+/--
+Partition all event ids by `getKey` and return them grouped by the key.
+-/
 def collectEidByKey {K : Type} [Ord K] [Std.TransCmp (compare : K → K → Ordering)]
     (p : PreCand nThreads) (getKey : Eid → IEvent → Option K)
     : Std.ExtTreeMap K (Std.ExtTreeSet Eid) :=
@@ -693,16 +786,10 @@ def collectEidByKey {K : Type} [Ord K] [Std.TransCmp (compare : K → K → Orde
       | .none => map
     ) Std.ExtTreeMap.empty
 
--- TODO: move this function elsewhere
-def setProd {cmp : α → α → Ordering} [Std.TransCmp cmp]
-    {cmp' : α × α → α × α → Ordering} [Std.TransCmp cmp']
-    (a b : Std.ExtTreeSet α cmp) : Std.ExtTreeSet (α × α) cmp' :=
-  a.foldl (fun prod a =>
-    b.foldl (fun prod b =>
-      prod.insert (a, b)
-    ) prod
-  ) Std.ExtTreeSet.empty
-
+/--
+Get a binary relation which relates any two events that map to the same key
+according the `getKey`.
+-/
 def sameKey {K : Type} [Ord K] [Std.TransCmp (compare : K → K → Ordering)]
     (p : PreCand nThreads) (getKey : Eid → IEvent → Option K)
     : Rel Eid :=
@@ -745,7 +832,10 @@ def sameReg (p : PreCand nThreads) : Rel Eid :=
 def sameRegSameValue (p : PreCand nThreads) : Rel Eid :=
   p.sameKey (fun eid ev => Option.map (eid.tid, ·) ev.getRegValue)
 
-
+/--
+Is this event a register read read who's value read is consistent with
+initial register states.
+-/
 def is_valid_init_reg_read (p : PreCand nThreads) (eid : Eid) : Prop :=
   match p[eid]? with
   | .some ev =>
@@ -775,11 +865,11 @@ instance : Decidable (is_valid_init_mem_read p eid) := by
   unfold is_valid_init_mem_read
   split <;> infer_instance
 
--- TODO: `not_after` relation. in this iff `(· ∩ po⁻¹ = ∅)`
+-- TODO: `not_after` relation. pair is in this iff `(· ∩ po⁻¹ = ∅)`.
 
 end PreCand
 
-
+/-- A candidate execution. -/
 structure Cand (nThreads : Nat) [Arch] [ArchExtra] where
   pre : PreCand nThreads
   memReadsFrom : Rel Eid
@@ -791,6 +881,7 @@ namespace Cand
 
 variable [Arch] [ArchExtra]
 
+/-- Does the event id point to a valid event. -/
 def eid_valid (c : Cand nThreads) : Eid → Prop := c.pre.eid_valid
 
 instance (c : Cand nThreads) (eid : Eid) : Decidable (eid_valid c eid) := by
@@ -801,6 +892,10 @@ instance : GetElem (Cand nThreads) Eid IEvent eid_valid where
   getElem (c : Cand nThreads) (eid : Eid) (valid : c.eid_valid eid) : IEvent
     := c.pre[eid]
 
+/--
+Get the last write to each location in the candidate exeuctions instruction
+traces.
+-/
 def finalWrites (c : Cand nThreads) : Std.ExtTreeMap Address (Eid × BitVec 8) :=
   c.pre.iEventList'.foldl (fun mem (eid, ev) =>
     match ev.call with
@@ -819,10 +914,16 @@ def finalWrites (c : Cand nThreads) : Std.ExtTreeMap Address (Eid × BitVec 8) :
     | _ => mem
   ) Std.ExtTreeMap.empty
 
+/--
+Get the final memory map after execution all instruction traces.
+-/
 def finalMemMap (c : Cand nThreads) : MemoryMap :=
   let writtenMem := (finalWrites c).map (fun _ (_,v) => v)
   Std.ExtTreeMap.union c.pre.init.memory writtenMem
 
+/--
+Get the final architecture state after a candidate execution.
+-/
 def toArchState (c : Cand nThreads) : ArchState nThreads :=
   { memory := c.finalMemMap
   , addressSpace := c.pre.init.addressSpace
@@ -1025,7 +1126,6 @@ instance : Decidable (wf c) := by
   rw [wf.mk_iff]
   infer_instance
 
--- TODO: CR clang for thibaut: symbol presicence for rocq?
 def intra_instruction_order_addr (c : Cand nThreads) : Rel Eid :=
   c.pre.intraInstructionOrder ;
   ((Δ c.pre.memWriteAddrAnnounces ; c.pre.intraInstructionOrder ; Δ c.pre.memWriteReqs
@@ -1052,7 +1152,7 @@ def ctrl (c : Cand nThreads) : Rel Eid :=
 
 def atomicUpdate (c : Cand nThreads) : Rel Eid :=
   c.pre.sameInstructionInstance ∩
-  (PreCand.setProd (c.pre.memReads) (c.pre.memWrites)) ∩
+  (setProd (c.pre.memReads) (c.pre.memWrites)) ∩
   c.pre.sameFootprint
 
 end Cand
